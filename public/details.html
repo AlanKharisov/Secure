@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Деталі продукту</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .detail-card{max-width:860px;margin:24px auto;padding:0 16px}
+    .hero{display:flex;flex-wrap:wrap;gap:16px}
+    .hero .imgwrap{flex:0 0 280px;background:#0c1330;border-radius:14px;display:grid;place-items:center;border:1px solid var(--border);padding:12px}
+    .hero .info{flex:1;border:1px solid var(--border);border-radius:14px;padding:14px;background:linear-gradient(180deg, rgba(19,26,52,.75), rgba(12,17,39,.75))}
+    .chip{display:inline-block;padding:4px 8px;border-radius:999px;border:1px solid var(--border);margin-right:6px;margin-bottom:6px}
+    .milkph{width:100%;height:auto;max-height:260px}
+  </style>
+</head>
+<body>
+  <div class="detail-card">
+    <a href="index.html" class="btn">← Назад</a>
+    <h1>Деталі продукту</h1>
+    <div id="content" class="card">Завантаження…</div>
+  </div>
+
+  <script>
+    const API = window.location.origin;
+
+    const milkSVG = `
+<svg class="milkph" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Milk placeholder">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9dd7ff"/>
+      <stop offset="1" stop-color="#e8f6ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="200" height="200" fill="#0c1330"/>
+  <g transform="translate(35,20)">
+    <rect x="20" y="20" rx="8" width="110" height="160" fill="url(#g1)" stroke="#6c86ff" stroke-width="2"/>
+    <rect x="35" y="35" width="80" height="35" rx="6" fill="#6c86ff" opacity="0.85"/>
+    <text x="75" y="58" text-anchor="middle" fill="#fff" font-size="18" font-family="Inter,Arial">MILK</text>
+    <path d="M30 95 Q75 75 120 95 L120 150 Q75 165 30 150Z" fill="#ffffff" opacity="0.9"/>
+  </g>
+</svg>`;
+
+    const qs = new URLSearchParams(location.search);
+    const id = qs.get('id');
+
+    async function load(){
+      const box = document.getElementById('content');
+      if(!id){ box.innerHTML = '<div class="result bad">Немає id</div>'; return; }
+      try{
+        const res = await fetch(`${API}/api/verify/${encodeURIComponent(id)}`);
+        const j = await res.json();
+        if(!res.ok) throw new Error(j.error || 'Not found');
+
+        const chips = (j.metadata.certificates||[]).map(c=>`<span class="chip">${c}</span>`).join('') || '<span class="muted">немає</span>';
+        const isPurchased = j.state === 'purchased' || j.state === 'claimed';
+        const warnHTML = isPurchased ? '' : `<div class="result warn" style="margin-top:10px">
+          Продукт ще <b>не позначено як куплений</b>. Попросіть продавця активувати покупку або відскануйте claim-QR.
+        </div>`;
+
+        let imgHTML = '';
+        if (j.metadata.image && j.metadata.image.trim()) {
+          imgHTML = `<img class="milkph" src="${j.metadata.image}" alt="Фото продукту" ${isPurchased?'':'style="filter: blur(6px);"'} onerror="this.replaceWith((()=>{const d=document.createElement('div'); d.innerHTML=\`${milkSVG}\`; const s=d.firstChild; ${isPurchased?'':'s.style.filter=\`blur(6px)\`;'} return s})());"/>`;
+        } else {
+          imgHTML = milkSVG.replace('<svg', `<svg ${isPurchased?'':'style="filter: blur(6px);"'}`);
+        }
+
+        box.innerHTML = `
+          <div class="hero">
+            <div class="imgwrap">${imgHTML}</div>
+            <div class="info">
+              <div style="display:flex;gap:10px;align-items:center;justify-content:space-between">
+                <h2 style="margin:0">${j.metadata.name}</h2>
+                <span class="badge">${j.state}</span>
+              </div>
+              <div class="mono" style="margin-top:6px">TokenId: ${j.tokenId}</div>
+              <div class="mono">Serial: ${j.metadata.serial}</div>
+              <div>Вироблено: ${j.metadata.manufacturedAt}</div>
+              <div style="margin:10px 0">Сертифікати: ${chips}</div>
+              <div class="mono">SerialHash: ${j.serialHash}</div>
+              <div class="mono">IPFS (mock): ${j.ipfsHash}</div>
+              ${warnHTML}
+            </div>
+          </div>
+        `;
+      }catch(e){
+        document.getElementById('content').innerHTML = `<div class="result bad">Помилка: ${e.message}</div>`;
+      }
+    }
+    load();
+  </script>
+</body>
+</html>
