@@ -149,7 +149,9 @@ func main() {
 	})
 
 	// статика
-	fs := http.FileServer(http.Dir("./public"))
+	exe, _ := os.Executable()
+	root := filepath.Join(filepath.Dir(exe), "docs")
+	fs := http.FileServer(http.Dir(root))
 	mux.Handle("/", fs)
 
 	port := os.Getenv("PORT")
