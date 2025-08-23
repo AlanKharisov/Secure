@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="uk">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Мій акаунт — MARKI Secure</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .acc-page{max-width:1000px;margin:24px auto;padding:0 16px}
+        .profile{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+        .profile .avatar{width:56px;height:56px;border-radius:50%;border:1px solid var(--border);object-fit:cover}
+        .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0}
+        .kpis .card{padding:10px;border-radius:12px;text-align:center}
+        .thumb{width:42px;height:42px;border-radius:10px;border:1px solid var(--border);object-fit:cover;background:#0c1330}
+    </style>
+    <script type="module" src="firebase.js"></script>
+    <script defer src="auth-ui.js"></script>
+</head>
+<body>
+<div class="acc-page">
+    <a href="index.html" class="btn">← Назад</a>
+    <h1 style="margin:10px 0 6px">Мій акаунт</h1>
+
+    <!-- Профіль -->
+    <div id="authBox" class="card">
+        <div class="profile">
+            <img id="pPhoto" class="avatar" alt="" style="display:none">
+            <div>
+                <div id="pName" style="font-weight:700"></div>
+                <div id="pEmail" class="muted"></div>
+            </div>
+            <div style="margin-left:auto; display:flex; gap:8px">
+                <a id="accountLink" href="account.html" class="btn ghost" style="display:none">Мій акаунт</a>
+                <button id="loginBtn"  class="btn">Увійти</button>
+                <button id="logoutBtn" class="btn ghost" style="display:none">Вийти</button>
+            </div>
+        </div>
+
+        <!-- та сама панель логіну -->
+        <div id="authPanel" class="auth-panel hidden" style="position:static;margin-top:10px">
+            <button id="gLogin" class="btn wide">Увійти через Google</button>
+            <div class="muted small center" style="margin:6px 0">або email</div>
+            <input id="email" class="auth-input" placeholder="email">
+            <input id="password" class="auth-input" placeholder="пароль" type="password">
+            <div class="row" style="gap:8px">
+                <button id="emailSignIn" class="btn">Вхід</button>
+                <button id="emailSignUp" class="btn ghost">Реєстрація</button>
+            </div>
+            <div id="authErr" class="result bad" style="display:none; margin-top:8px"></div>
+        </div>
+    </div>
+
+    <!-- KPI -->
+    <div id="kpiBox" class="kpis">
+        <div class="card result ok"><div>Придбані</div><div id="kPurchased" style="font-size:22px;font-weight:700">0</div></div>
+        <div class="card result"><div>Створені (ваші)</div><div id="kCreated" style="font-size:22px;font-weight:700">0</div></div>
+        <div class="card result warn"><div>Клеймнуті</div><div id="kClaimed" style="font-size:22px;font-weight:700">0</div></div>
+    </div>
+
+    <!-- Список товарів -->
+    <div class="card">
+        <h3>Мої товари</h3>
+        <div class="tablewrap">
+            <table class="table">
+                <thead>
+                <tr>
+                    <th></th><th>Назва</th><th>Серійний</th><th>TokenId</th><th>Стан</th><th>Деталі</th>
+                </tr>
+                </thead>
+                <tbody id="myBody">
+                <tr><td colspan="6" class="muted">Увійдіть, щоб побачити свої товари</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API = window.location.origin;
+    const $ = (s)=>document.querySelector(s);
+
+    // підлаштувати шапку профілю під auth
+    document.addEventListener('auth-changed', (e)=>{
+        const u = e.detail;
+        const pPhoto = $('#pPhoto');
+        const pName  = $('#pName');
+        const pEmail = $('#pEmail');
+        const login  = $('#loginBtn');
+        const logout = $('#logoutBtn');
+        const panel  = $('#authPanel');
+        const accountLink = $('#accountLink');
+
+        if (u){
+            if (u.photoURL){ pPhoto.src = u.photoURL; pPhoto.style.display='inline-block'; } else pPhoto.style.display='none';
+            pName.textContent = u.displayName || u.email || u.uid;
+            pEmail.textContent = u.email || '';
+            login.style.display='none';
+            logout.style.display='inline-block';
+            panel.classList.add('hidden');
+            if (accountLink) accountLink.style.display = 'inline-block';
+            loadMy(u);
+        } else {
+            pPhoto.style.display='none';
+            pName.textContent = '';
+            pEmail.textContent = '';
+            login.style.display='inline-block';
+            logout.style.display='none';
+            $('#myBody').innerHTML = `<tr><td colspan="6" class="muted">Увійдіть, щоб побачити свої товари</td></tr>`;
+            $('#kPurchased').textContent = '0';
+            $('#kCreated').textContent   = '0';
+            $('#kClaimed').textContent   = '0';
+        }
+    });
+
+    // відкриття/закриття панелі входу
+    $('#loginBtn')?.addEventListener('click', ()=> $('#authPanel')?.classList.toggle('hidden'));
+    $('#logoutBtn')?.addEventListener('click', ()=> window.Auth?.signOut());
+
+    $('#gLogin')?.addEventListener('click', ()=> window.Auth?.signInGoogle());
+    $('#emailSignIn')?.addEventListener('click', async ()=>{
+        try { await window.Auth?.signInEmail(($('#email')?.value||'').trim(), ($('#password')?.value||'').trim()); }
+        catch(e){ alert(e.message); }
+    });
+    $('#emailSignUp')?.addEventListener('click', async ()=>{
+        try { await window.Auth?.signUpEmail(($('#email')?.value||'').trim(), ($('#password')?.value||'').trim()); }
+        catch(e){ alert(e.message); }
+    });
+
+    // завантажити товари користувача
+    async function loadMy(u){
+        const who = u.email || u.uid;
+        const res = await fetch(`${API}/api/products?owner=${encodeURIComponent(who)}`);
+        const list = await res.json();
+        if (!Array.isArray(list)){
+            $('#myBody').innerHTML = `<tr><td colspan="6" class="muted">Помилка завантаження</td></tr>`;
+            return;
+        }
+        renderList(list);
+    }
+
+    function renderList(list){
+        const body = $('#myBody');
+        body.innerHTML = '';
+        if (!list.length){
+            body.innerHTML = `<tr><td colspan="6" class="muted">Ще немає товарів</td></tr>`;
+        } else {
+            let p=0,c=0,cl=0;
+            list.forEach(pdt=>{
+                if (pdt.state==='purchased') p++;
+                else if (pdt.state==='created') c++;
+                else if (pdt.state==='claimed') cl++;
+                const img = (pdt.meta?.image||'').trim() ? `<img class="thumb" src="${pdt.meta.image}" alt="">` : '';
+                const detailsUrl = `details.html?id=${encodeURIComponent(pdt.id)}&s=${encodeURIComponent(pdt.serialHash||'')}`;
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+            <td>${img}</td>
+            <td>${pdt.meta?.name||'-'}</td>
+            <td class="mono">${pdt.meta?.serial||'-'}</td>
+            <td class="mono">${pdt.id}</td>
+            <td><span class="badge">${pdt.state}</span></td>
+            <td><a class="btn" href="${detailsUrl}" target="_blank" rel="noopener">Відкрити</a></td>
+          `;
+                body.appendChild(tr);
+            });
+            $('#kPurchased').textContent = String(p);
+            $('#kCreated').textContent   = String(c);
+            $('#kClaimed').textContent   = String(cl);
+        }
+    }
+
+    // якщо користувач уже авторизований — підвантажити
+    if (window.Auth && window.Auth.user) {
+        const u = window.Auth.user;
+        document.dispatchEvent(new CustomEvent('auth-changed', { detail: u }));
+    }
+</script>
+</body>
+</html>
