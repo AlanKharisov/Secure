@@ -1,5 +1,11 @@
 // Firebase (Redirect flow) — без popup → нет COOP предупреждений
 // docs/firebase.js
+// ==== Firebase Auth (CDN ESM) ====
+// Подключай так в HTML, ОБЯЗАТЕЛЬНО после config.js:
+//
+// <script defer src="config.js"></script>
+// <script type="module" src="firebase.js"></script>
+
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth,
@@ -15,7 +21,7 @@ import {
   createUserWithEmailAndPassword,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
-// ⚠️ твой реальный конфиг Web-приложения из консоли Firebase
+// ⚠️ твой реальный конфиг из Firebase console
 const firebaseConfig = {
   apiKey: "AIzaSyBknpQ46_NXV0MisgfjZ7Qs-XS9jhn7hws",
   authDomain: "fir-d9f54.firebaseapp.com",
@@ -26,20 +32,25 @@ const firebaseConfig = {
   measurementId: "G-LHZJH1VPG6",
 };
 
+// init
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 auth.useDeviceLanguage();
 
-// 1) сохраняем сессию между перезагрузками/редиректами
-await setPersistence(auth, browserLocalPersistence).catch(() => {});
+// persistence (через IIFE, без top-level await для совместимости)
+(async () => {
+  try { await setPersistence(auth, browserLocalPersistence); }
+  catch { /* ignore */ }
+})().catch(() => {});
 
-// 2) провайдер Google
+// провайдер Google
 const google = new GoogleAuthProvider();
 
+// Глобальный API
 const Auth = {
   user: null,
 
-  // popup → fallback в redirect, если заблокирован/закрыт
+  // popup → fallback в redirect, если popup заблокирован/закрыт
   async signInGoogle() {
     try {
       await signInWithPopup(auth, google);
@@ -59,6 +70,7 @@ const Auth = {
   async signUpEmail(email, pass) {
     return createUserWithEmailAndPassword(auth, email, pass);
   },
+
   async signInEmail(email, pass) {
     return signInWithEmailAndPassword(auth, email, pass);
   },
@@ -74,15 +86,15 @@ const Auth = {
 
 window.Auth = Auth;
 
-// 3) забираем результат редиректа (чтобы очистить pending state)
+// забираем результат после redirect-логина (чтобы очистить pending)
 getRedirectResult(auth).catch(() => {});
 
-// 4) единая точка правды о пользователе
+// единая точка правды о пользователе
 onAuthStateChanged(auth, (u) => {
   const user = u
     ? {
         uid: u.uid,
-        email: (u.email || "").toLowerCase(),   // нижний регистр для стабильности
+        email: (u.email || "").toLowerCase(), // всегда нижний регистр
         displayName: u.displayName || "",
         photoURL: u.photoURL || "",
       }
