@@ -51,7 +51,7 @@ body{
 .authbox{
   margin-left:auto;
   display:flex; align-items:center; gap:8px;
-  flex-wrap:wrap; /* щоб бренди ставали під емейл на вузьких екранах */
+  flex-wrap:wrap;
   max-width:100%;
 }
 .avatar{width:28px;height:28px;border-radius:999px;border:1px solid var(--border);object-fit:cover}
@@ -59,7 +59,7 @@ body{
   max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 
-/* brand chips біля email */
+/* бренди поруч з email */
 .brandchips{
   display:flex; gap:6px; align-items:center; flex-wrap:wrap;
   max-width:420px;
