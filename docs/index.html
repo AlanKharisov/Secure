@@ -6,19 +6,13 @@
   <title>MARKI Secure — Demo</title>
   <link rel="stylesheet" href="styles.css">
 
-  <!-- ПОРЯДОК СКРИПТОВ -->
+  <!-- Порядок JS -->
   <script src="config.js"></script>
   <script type="module" src="firebase.js"></script>
   <script defer src="auth-ui.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
   <script defer src="cart.js"></script>
   <script defer src="app.js"></script>
-
-  <style>
-    /* Немного доп. стилей для селектов и KPI */
-    .small{font-size:12px}
-    .brandchips{margin-top:6px}
-  </style>
 </head>
 <body>
 <div class="app">
@@ -32,15 +26,19 @@
     </div>
 
     <nav class="tabs">
-      <button class="tab active" data-tab="user">Користувач</button>
       <button class="tab" data-tab="manufacturer" style="display:none">Виробник</button>
+      <button class="tab active" data-tab="user">Користувач</button>
 
       <a class="cartbtn" href="cart.html">🛒 Кошик <span id="cartCount">0</span></a>
 
       <!-- AUTH UI -->
       <div class="authbox">
         <img id="authPhoto" class="avatar" alt="" style="display:none">
-        <span id="authEmail" class="muted"></span>
+        <span id="authEmail" class="muted email-compact"></span>
+
+        <!-- Бренд/и прямо поруч з email -->
+        <div id="myBrands" class="brandchips small"></div>
+
         <button id="loginBtn"  class="btn">Увійти</button>
         <button id="logoutBtn" class="btn ghost" style="display:none">Вийти</button>
         <a id="accountLink" href="account.html" class="btn ghost" style="display:none">Мій акаунт</a>
@@ -58,47 +56,9 @@
         </div>
       </div>
     </nav>
-    <div class="container">
-      <div id="myBrands" class="brandchips small"></div>
-    </div>
   </header>
 
   <main class="container">
-    <!-- Користувач -->
-    <section id="user" class="tabpane active">
-      <div class="card">
-        <h2>Як це працює</h2>
-        <p class="muted">
-          Скануйте QR вашим телефонним сканером — він відкриє <code>details.html?id=…</code>.
-        </p>
-        <div class="row">
-          <div class="field">
-            <label>Ввести TokenId вручну (для тесту)</label>
-            <input id="manualId" placeholder="наприклад, 1">
-          </div>
-          <div style="align-self:end">
-            <button class="btn" id="openDetails">Відкрити деталі</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Мої товари</h3>
-        <div class="tablewrap">
-          <table class="table">
-            <thead>
-            <tr>
-              <th></th><th>Назва</th><th>Серійний</th><th>TokenId</th><th>Стан</th><th>Деталі</th>
-            </tr>
-            </thead>
-            <tbody id="myBody">
-            <tr><td colspan="6" class="muted">Увійдіть, щоб побачити свої товари</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
     <!-- Виробник -->
     <section id="manufacturer" class="tabpane">
       <div class="card">
@@ -110,26 +70,27 @@
           </div>
 
           <div class="row">
-            <div class="field">
+            <div class="field" id="brandField">
               <label>Бренд</label>
               <select name="brand" id="brand">
                 <option value="">— оберіть бренд —</option>
               </select>
+              <div id="brandHint" class="small muted" style="display:none">Бренд вибрано автоматично</div>
             </div>
             <div class="field">
-              <label>Дата виготовлення</label>
-              <input type="date" name="manufacturedAt" id="manufacturedAt" />
+              <label>Дата виготовлення <span class="muted">(необов'язково)</span></label>
+              <input type="date" name="manufacturedAt" id="manufacturedAt" placeholder="дд.мм.рррр"/>
             </div>
           </div>
 
           <div class="row">
             <div class="field">
-              <label>Зображення (URL)</label>
-              <input type="url" name="image" id="image" placeholder="https://..." />
+              <label>Зображення (URL) <span class="muted">(необов'язково)</span></label>
+              <input type="url" name="image" id="image" placeholder="https://..."/>
             </div>
             <div class="field">
               <label>Кількість в партії</label>
-              <input type="number" name="editionCount" id="editionCount" min="1" value="1" />
+              <input type="number" name="editionCount" id="editionCount" min="1" value="1"/>
             </div>
           </div>
 
@@ -169,6 +130,39 @@
             </thead>
             <tbody id="productsBody">
             <tr><td colspan="7" class="muted">Ще немає продуктів</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Користувач -->
+    <section id="user" class="tabpane active">
+      <div class="card">
+        <h2>Як це працює</h2>
+        <p class="muted">Скануйте QR — відкриється <code>details.html?id=…</code>.</p>
+        <div class="row">
+          <div class="field">
+            <label>Ввести TokenId вручну (для тесту)</label>
+            <input id="manualId" placeholder="наприклад, 1">
+          </div>
+          <div style="align-self:end">
+            <button class="btn" id="openDetails">Відкрити деталі</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Мої товари</h3>
+        <div class="tablewrap">
+          <table class="table">
+            <thead>
+            <tr>
+              <th></th><th>Назва</th><th>Серійний</th><th>TokenId</th><th>Стан</th><th>Деталі</th>
+            </tr>
+            </thead>
+            <tbody id="myBody">
+            <tr><td colspan="6" class="muted">Увійдіть, щоб побачити свої товари</td></tr>
             </tbody>
           </table>
         </div>
