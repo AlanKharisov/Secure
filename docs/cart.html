@@ -5,24 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
     <title>Кошик — MARKI Secure</title>
     <link rel="stylesheet" href="styles.css">
-    <style>
-        .cart-page{max-width:1000px;margin:24px auto;padding:0 16px}
-        .thumb{width:64px;height:64px;border-radius:10px;border:1px solid var(--border);object-fit:cover;background:#0c1330}
-        .total{display:flex;justify-content:flex-end;gap:12px;align-items:center;margin-top:12px}
-    </style>
     <script type="module" src="firebase.js"></script>
     <script defer src="auth-ui.js"></script>
     <script defer src="cart.js"></script>
+    <script defer src="config.js"></script>
 </head>
 <body>
-<div class="cart-page">
+<div class="cart-page container">
     <a href="index.html" class="btn">← Назад</a>
     <h1 style="margin:10px 0 6px">Кошик</h1>
 
-    <!-- AUTH UI (такий самий як у хедері index.html) -->
     <div class="authbox" style="justify-content:flex-end; margin:8px 0">
         <img id="authPhoto" class="avatar" alt="" style="display:none">
         <span id="authEmail" class="muted"></span>
+        <span id="roleBadges" class="muted small" style="margin-left:6px"></span>
         <button id="loginBtn"  class="btn">Увійти</button>
         <button id="logoutBtn" class="btn ghost" style="display:none">Вийти</button>
         <a id="accountLink" href="account.html" class="btn ghost" style="display:none">Мій акаунт</a>
@@ -59,93 +55,5 @@
         <div id="checkoutMsg" class="result muted" style="margin-top:10px; display:none"></div>
     </div>
 </div>
-
-<script>
-    const API = window.location.origin;
-    const $ = (s)=>document.querySelector(s);
-
-    function render(){
-        const items = window.MCart?.read() || [];
-        const body = $('#cartBody');
-        const qty  = $('#cartQty');
-        body.innerHTML = '';
-        if(!items.length){
-            body.innerHTML = `<tr><td colspan="5" class="muted">Кошик порожній</td></tr>`;
-            qty.textContent = '0';
-            $('#checkoutBtn').disabled = true;
-            return;
-        }
-        items.forEach(item=>{
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-          <td>${item.image ? `<img class="thumb" src="${item.image}" alt="">` : ''}</td>
-          <td><a href="${item.url || `details.html?id=${item.id}`}" target="_blank" rel="noopener">${item.name||'-'}</a></td>
-          <td class="mono">${item.serial||'-'}</td>
-          <td class="mono">${item.id}</td>
-          <td><button class="btn" data-remove="${item.id}">Видалити</button></td>
-        `;
-            body.appendChild(tr);
-        });
-        body.querySelectorAll('[data-remove]').forEach(btn=>{
-            btn.addEventListener('click', ()=>{
-                window.MCart.remove(btn.getAttribute('data-remove'));
-                render();
-            });
-        });
-        qty.textContent = String(items.length);
-
-        // Увімкнути оформлення лише коли є користувач
-        $('#checkoutBtn').disabled = !(window.Auth && window.Auth.user);
-    }
-
-    async function checkout(){
-        const items = window.MCart.read();
-        const user  = window.Auth?.user;
-        if(!user){ alert('Будь ласка, увійдіть у свій акаунт.'); return; }
-        if(!items.length) return;
-
-        const btn = $('#checkoutBtn');
-        const msg = $('#checkoutMsg');
-        btn.disabled = true; msg.style.display = 'block';
-        msg.className = 'result'; msg.textContent = 'Проводимо покупку...';
-
-        const ok = []; const fail = [];
-        for (const it of items){
-            try{
-                const r = await fetch(`${API}/api/products/${it.id}/purchase`, {
-                    method:'POST',
-                    headers:{'Content-Type':'application/json'},
-                    body: JSON.stringify({ owner: user.email || user.uid })
-                });
-                const j = await r.json();
-                if(!r.ok){ fail.push({it, err: j.error || 'error'}); }
-                else { ok.push(it); }
-            }catch(e){ fail.push({it, err: e.message}); }
-        }
-
-        if (fail.length === 0){
-            window.MCart.clear();
-            render();
-            msg.className = 'result ok';
-            msg.innerHTML = 'Готово! Усі товари позначені як придбані.<br>' +
-                '<b>Чек:</b><br>' + ok.map(o=>`#${o.id} — ${o.name} <span class="mono">(${o.serial})</span>`).join('<br>');
-        } else {
-            const left = window.MCart.read().filter(x => !ok.some(o=>o.id===x.id));
-            window.MCart.save(left);
-            render();
-            msg.className = 'result warn';
-            msg.innerHTML = `Частково виконано. Успішно: ${ok.length}, з помилкою: ${fail.length}.<br>` +
-                (ok.length ? '<b>Оформлено:</b><br>' + ok.slice(0,5).map(o=>`#${o.id} — ${o.name}`).join('<br>') + (ok.length>5?'<br>…':'') + '<br>' : '') +
-                '<b>Проблемні:</b><br>' + fail.slice(0,5).map(f=>`#${f.it.id}: ${f.err}`).join('<br>') + (fail.length>5?'<br>…':'');
-        }
-        btn.disabled = false;
-    }
-
-    document.getElementById('checkoutBtn').addEventListener('click', checkout);
-    render();
-
-    // оновлювати доступність при зміні auth
-    document.addEventListener('auth-changed', ()=> render());
-</script>
 </body>
 </html>

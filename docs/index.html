@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
     <title>MARKI Secure — Demo</title>
     <link rel="stylesheet" href="styles.css">
-    <!-- ПОРЯДОК: firebase.js (module) → auth-ui.js → інші -->
+    <!-- порядок: firebase -> auth-ui -> qrcode -> app -->
     <script type="module" src="firebase.js"></script>
     <script defer src="auth-ui.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
-    <script defer src="cart.js"></script>
     <script defer src="app.js"></script>
+    <script defer src="config.js"></script>
 </head>
 <body>
 <div class="app">
@@ -19,19 +19,20 @@
             <div class="logo"></div>
             <div class="name">
                 <h1>MARKI Secure</h1>
-                <p>Один QR → сторінка деталей</p>
+                <p>QR → деталі продукту</p>
             </div>
         </div>
         <nav class="tabs">
-            <button class="tab active" data-tab="manufacturer">Виробник</button>
-            <button class="tab" data-tab="user">Користувач</button>
+            <button class="tab active" data-tab="userPane">Користувач</button>
+            <button class="tab" data-tab="manPane">Виробник</button>
 
             <a class="cartbtn" href="cart.html">🛒 Кошик <span id="cartCount">0</span></a>
 
             <!-- AUTH UI -->
             <div class="authbox">
                 <img id="authPhoto" class="avatar" alt="" style="display:none">
-                <span id="authEmail" class="muted"></span>
+                <span id="authEmail" class="muted" title=""></span>
+                <span id="roleBadges" class="muted small" style="margin-left:6px"></span>
                 <button id="loginBtn"  class="btn">Увійти</button>
                 <button id="logoutBtn" class="btn ghost" style="display:none">Вийти</button>
                 <a id="accountLink" href="account.html" class="btn ghost" style="display:none">Мій акаунт</a>
@@ -52,97 +53,123 @@
     </header>
 
     <main class="container">
-        <!-- Виробник -->
-        <section id="manufacturer" class="tabpane active">
+        <!-- Користувач -->
+        <section id="userPane" class="tabpane active">
             <div class="card">
-                <h2>Реєстрація продукту</h2>
-                <form id="createForm" class="form">
-                    <div class="field">
-                        <label>Назва*</label>
-                        <input name="name" id="name" placeholder="Organic Milk 1L" required />
-                    </div>
-
-                    <div class="row">
+                <h2>Створити продукт (Користувач)</h2>
+                <form id="userCreateForm" class="form">
+                    <div class="form-grid">
                         <div class="field">
-                            <label>Серійний номер (генерується автоматично)</label>
-                            <input name="serial" id="serial" readonly />
+                            <label>Назва*</label>
+                            <input name="name" placeholder="Напр., Organic Milk 1L" required>
                         </div>
                         <div class="field">
-                            <label>Дата виробництва</label>
-                            <input name="date" type="date" />
+                            <label>Дата виготовлення* (YYYY-MM-DD)</label>
+                            <input name="manufacturedAt" placeholder="2025-09-03" required>
+                            <div class="muted small">Обов’язково для користувача</div>
+                        </div>
+                        <div class="field">
+                            <label>Зображення (URL)</label>
+                            <input name="image" placeholder="https://...">
                         </div>
                     </div>
-
-                    <div class="field">
-                        <label>URL зображення (необов'язково)</label>
-                        <input name="image" placeholder="" />
-                    </div>
-
-                    <div class="field">
-                        <label>Сертифікати (через кому)</label>
-                        <input name="certificates" placeholder="ISO22000, HACCP" />
-                    </div>
-
                     <div class="actions">
-                        <button class="btn primary">Створити продукт</button>
-                        <button type="reset" class="btn ghost">Очистити</button>
+                        <button class="btn primary">Створити</button>
                     </div>
                 </form>
             </div>
 
-            <div id="createdBlock" class="card hidden">
-                <h3>Створено</h3>
-                <div class="created-body">
-                    <div class="qrbox">
-                        <div id="publicQR"></div>
-                        <span>Публічний QR (для етикетки)</span>
-                    </div>
-                    <div class="meta">
-                        <div><b>TokenId:</b> <span id="createdId"></span></div>
-                        <div><b>Стан:</b> <span class="badge" id="createdState"></span></div>
-                        <div class="mono"><b>Публічне посилання:</b> <span id="createdUrl"></span></div>
-                    </div>
-                </div>
-            </div>
-
             <div class="card">
-                <h3>Список продуктів</h3>
+                <h3>Мої товари</h3>
                 <div class="tablewrap">
-                    <table class="table" id="productsTable">
+                    <table class="table">
                         <thead>
                         <tr>
-                            <th>TokenId</th><th>Назва</th><th>Серійний</th><th>Стан</th><th>Дії</th>
+                            <th>TokenId</th><th>Назва</th><th>Серійний</th><th>Edition</th><th>Стан</th><th>Дії</th>
                         </tr>
                         </thead>
-                        <tbody id="productsBody">
-                        <tr><td colspan="5" class="muted">Ще немає продуктів</td></tr>
-                        </tbody>
+                        <tbody id="userList"><tr><td colspan="6" class="muted">Увійдіть</td></tr></tbody>
                     </table>
                 </div>
             </div>
         </section>
 
-        <!-- Користувач -->
-        <section id="user" class="tabpane">
+        <!-- Виробник -->
+        <section id="manPane" class="tabpane">
             <div class="card">
-                <h2>Як це працює</h2>
-                <p class="muted">
-                    Скануйте QR вашим телефонним сканером — він відкриє <code>details.html?id=…</code>.
-                </p>
-                <div class="row">
-                    <div class="field">
-                        <label>Ввести TokenId вручну (для тесту)</label>
-                        <input id="manualId" placeholder="наприклад, 1">
+                <h2>Масове створення (Виробник)</h2>
+                <form id="manCreateForm" class="form">
+                    <div class="form-grid">
+                        <div class="field">
+                            <label>Назва*</label>
+                            <input name="name" required placeholder="Coke Zero 330ml">
+                        </div>
+                        <div class="field">
+                            <label>Кількість (1–100)</label>
+                            <input name="qty" type="number" min="1" max="100" value="1">
+                        </div>
+                        <div class="field">
+                            <label>Бренд (slug або назва)</label>
+                            <input name="brand" placeholder="COCA-COLA">
+                            <div class="muted small">Галочка з’явиться, якщо бренд верифікований</div>
+                        </div>
+                        <div class="field">
+                            <label>Base serial (необов’язково)</label>
+                            <input name="serial" placeholder="COKE-ZERO-330ML">
+                            <div class="muted small">Буде: COKE-ZERO-330ML-001, 002, …</div>
+                        </div>
+                        <div class="field">
+                            <label>Дата виготовлення</label>
+                            <input name="manufacturedAt" placeholder="2025-09-03">
+                        </div>
+                        <div class="field">
+                            <label>IPFS Hash (необов’язково)</label>
+                            <input name="ipfsHash" placeholder="...">
+                        </div>
+                        <div class="field">
+                            <label>Зображення (URL)</label>
+                            <input name="image" placeholder="https://...">
+                        </div>
                     </div>
-                    <div style="align-self:end">
-                        <button class="btn" id="openDetails">Відкрити деталі</button>
+                    <div class="actions">
+                        <button class="btn primary">Створити партію</button>
                     </div>
+                </form>
+            </div>
+
+            <div class="card">
+                <h3>Всі продукти</h3>
+                <div class="tablewrap">
+                    <table class="table">
+                        <thead>
+                        <tr>
+                            <th>TokenId</th><th>Назва</th><th>Серійний</th>
+                            <th>Edition</th><th>Бренд</th><th>Стан</th><th>Дії</th>
+                        </tr>
+                        </thead>
+                        <tbody id="manList"><tr><td colspan="7" class="muted">Увійдіть як виробник</td></tr></tbody>
+                    </table>
                 </div>
             </div>
         </section>
     </main>
 
     <footer class="footer">© 2025 MARKI Secure (Demo)</footer>
+</div>
+
+<!-- QR модал -->
+<div id="qrModal" class="qr-panel" role="dialog" aria-modal="true">
+    <div class="qr-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div class="mono" id="qrTitle">QR</div>
+            <button id="qrClose" class="btn">Закрити</button>
+        </div>
+        <div id="qrNode"></div>
+        <div class="row" style="margin-top:10px;gap:8px">
+            <button id="qrDownload" class="btn">Завантажити PNG</button>
+            <button id="qrCopyUrl" class="btn ghost">Скопіювати URL</button>
+        </div>
+    </div>
 </div>
 </body>
 </html>
