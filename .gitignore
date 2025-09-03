@@ -1,4 +1,8 @@
-data/
+/server
+/data/
 *.db
-.env
-.idea/
+*.log
+*.out
+*.exe
+.DS_Store
+Thumbs.db
