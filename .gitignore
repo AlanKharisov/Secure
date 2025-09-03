@@ -1,8 +1,22 @@
-/server
-/data/
-*.db
-*.log
-*.out
-*.exe
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS junk
 .DS_Store
 Thumbs.db
+
+# Binaries & build
+/server
+*.exe
+*.out
+*.log
+
+# Data
+/data/
+*.db
+
+# Backups
+repo-backup-*.zip
+docs-backup-*.zip
