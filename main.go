@@ -50,8 +50,8 @@ type Product struct {
 	Owner        string   `json:"owner,omitempty"`
 	Seller       string   `json:"seller,omitempty"`
 	Brand        string   `json:"brand,omitempty"`        // slug
-	EditionTotal int      `json:"editionTotal,omitempty"` // общее число в тираже
-	EditionNo    int      `json:"editionNo,omitempty"`    // порядковый номер
+	EditionTotal int      `json:"editionTotal,omitempty"` // total in batch
+	EditionNo    int      `json:"editionNo,omitempty"`    // 1..EditionTotal
 }
 
 type ErrorResp struct {
@@ -80,19 +80,6 @@ var adminUsers = map[string]bool{}
 
 func isAdmin(user string) bool {
 	return adminUsers[strings.ToLower(strings.TrimSpace(user))]
-}
-
-func loadAdminsFromEnv() {
-	raw := strings.TrimSpace(os.Getenv("ADMIN_USERS"))
-	if raw == "" {
-		return
-	}
-	for _, a := range strings.Split(raw, ",") {
-		a = strings.ToLower(strings.TrimSpace(a))
-		if a != "" {
-			adminUsers[a] = true
-		}
-	}
 }
 
 /* ========================= Utils ========================= */
@@ -232,9 +219,9 @@ CREATE TABLE IF NOT EXISTS products (
   price_cents     INTEGER NOT NULL DEFAULT 0,
   currency        TEXT    NOT NULL DEFAULT 'EUR',
   public_url      TEXT,
-  brand_slug      TEXT,                   -- NEW
-  edition_total   INTEGER NOT NULL DEFAULT 1, -- NEW
-  edition_no      INTEGER NOT NULL DEFAULT 1  -- NEW
+  brand_slug      TEXT,
+  edition_total   INTEGER NOT NULL DEFAULT 1,
+  edition_no      INTEGER NOT NULL DEFAULT 1
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_products_serial ON products(serial);
 CREATE INDEX IF NOT EXISTS ix_products_state ON products(state);
@@ -264,7 +251,6 @@ CREATE TABLE IF NOT EXISTS ownership_history (
 );
 CREATE INDEX IF NOT EXISTS ix_ownhist_prod ON ownership_history(product_id);
 
--- Manufacturers (brands)
 CREATE TABLE IF NOT EXISTS manufacturers (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   name         TEXT    NOT NULL,
@@ -276,12 +262,17 @@ CREATE TABLE IF NOT EXISTS manufacturers (
   created_at   INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_man_owner ON manufacturers(owner);
+
+CREATE TABLE IF NOT EXISTS admins (
+  email      TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL
+);
 `
 	if _, err := db.Exec(schema); err != nil {
 		log.Fatalf("init schema: %v", err)
 	}
 
-	// best-effort ALTERs (ignore errors if already exist)
+	// best-effort ALTERs
 	_ = tryExec(`ALTER TABLE products ADD COLUMN owner TEXT;`)
 	_ = tryExec(`ALTER TABLE products ADD COLUMN seller TEXT;`)
 	_ = tryExec(`ALTER TABLE products ADD COLUMN price_cents INTEGER NOT NULL DEFAULT 0;`)
@@ -297,11 +288,94 @@ func tryExec(sqlStmt string) error {
 	return err
 }
 
+/* ========================= Admin bootstrap ========================= */
+
+func loadAdminsFromEnv() {
+	raw := strings.TrimSpace(os.Getenv("ADMIN_USERS"))
+	if raw == "" {
+		return
+	}
+	for _, a := range strings.Split(raw, ",") {
+		a = strings.ToLower(strings.TrimSpace(a))
+		if a != "" {
+			adminUsers[a] = true
+		}
+	}
+}
+
+func loadAdminsFromDB() {
+	rows, err := db.Query(`SELECT email FROM admins`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var e string
+		if err := rows.Scan(&e); err == nil {
+			adminUsers[strings.ToLower(strings.TrimSpace(e))] = true
+		}
+	}
+}
+
+func adminsRoot(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodOptions:
+		returnOK(w)
+		return
+	case http.MethodGet:
+		u := currentUser(r)
+		if !isAdmin(u) {
+			writeJSON(w, http.StatusForbidden, ErrorResp{"admin only"})
+			return
+		}
+		var list []string
+		rows, err := db.Query(`SELECT email FROM admins ORDER BY email`)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var e string
+			_ = rows.Scan(&e)
+			list = append(list, e)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"admins": list})
+	case http.MethodPost:
+		// POST /api/admins/bootstrap  — если нет админов вообще, сделать текущего (X-User) админом
+		if strings.HasSuffix(r.URL.Path, "/bootstrap") {
+			u := currentUser(r)
+			if u == "" {
+				writeJSON(w, http.StatusUnauthorized, ErrorResp{"missing user"})
+				return
+			}
+			var cnt int
+			_ = db.QueryRow(`SELECT COUNT(1) FROM admins`).Scan(&cnt)
+			if cnt > 0 {
+				writeJSON(w, http.StatusForbidden, ErrorResp{"already initialized"})
+				return
+			}
+			now := time.Now().UnixMilli()
+			if _, err := db.Exec(`INSERT INTO admins(email, created_at) VALUES(?,?)`, u, now); err != nil {
+				writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
+				return
+			}
+			adminUsers[u] = true
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "admin": u})
+			return
+		}
+		writeJSON(w, http.StatusNotFound, ErrorResp{"not found"})
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, ErrorResp{"Method not allowed"})
+	}
+}
+
 /* ========================= HTTP ========================= */
 
 func main() {
-	loadAdminsFromEnv()
 	mustInitDB()
+	loadAdminsFromEnv() // опционально
+	loadAdminsFromDB()  // основное хранение — в БД
 
 	mux := http.NewServeMux()
 
@@ -311,26 +385,31 @@ func main() {
 			"ok":         true,
 			"time":       time.Now().UTC(),
 			"publicBase": publicBase,
+			"admins":     len(adminUsers),
 		})
 	})
 
-	// Manufacturers API (brands)
-	mux.HandleFunc("/api/manufacturers", withCORS(manufacturersRoot))   // POST(create) / GET(list mine/all)
-	mux.HandleFunc("/api/manufacturers/", withCORS(manufacturersItem)) // GET/{slug}, POST/{slug}/verify
+	// Admins
+	mux.HandleFunc("/api/admins", withCORS(adminsRoot))                  // GET
+	mux.HandleFunc("/api/admins/bootstrap", withCORS(adminsRoot))        // POST
 
-	// Products API
-	mux.HandleFunc("/api/manufacturer/products", withCORS(manufacturerCreateProduct)) // POST (name/brand/...; edition)
-	mux.HandleFunc("/api/products", withCORS(productsList))                           // GET (?owner=)
-	mux.HandleFunc("/api/products/", withCORS(productActions))                        // POST /{id}/purchase
+	// Manufacturers
+	mux.HandleFunc("/api/manufacturers", withCORS(manufacturersRoot))    // POST/GET
+	mux.HandleFunc("/api/manufacturers/", withCORS(manufacturersItem))   // GET/{slug}, POST/{slug}/verify
+
+	// Products
+	mux.HandleFunc("/api/manufacturer/products", withCORS(manufacturerCreateProduct)) // POST
+	mux.HandleFunc("/api/products", withCORS(productsList))                           // GET
+	mux.HandleFunc("/api/products/", withCORS(productActions))                        // POST /purchase
 	mux.HandleFunc("/api/verify/", withCORS(verifyProduct))                           // GET /api/verify/{id}
 
-	// public redirect to details
+	// public redirect
 	mux.HandleFunc("/p/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.URL.Path, "/p/")
 		http.Redirect(w, r, "/details.html?id="+id, http.StatusFound)
 	})
 
-	// static from ./docs
+	// static
 	root := os.Getenv("DOCS_DIR")
 	if root == "" {
 		wd, _ := os.Getwd()
@@ -349,7 +428,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
-/* ========================= Handlers: Manufacturers ========================= */
+/* ========================= Manufacturers handlers ========================= */
 
 type manufCreateReq struct {
 	Name string `json:"name"`
@@ -395,7 +474,7 @@ func manufacturersRoot(w http.ResponseWriter, r *http.Request) {
 				Slug:       exSlug,
 				Owner:      exOwner,
 				Verified:   ver == 1,
-				VerifiedBy: verBy.String,
+				VerifiedBy: ifEmpty(verBy.String, ""),
 				VerifiedAt: verAt.Int64,
 				CreatedAt:  createdAt,
 			}
@@ -449,11 +528,13 @@ func manufacturersRoot(w http.ResponseWriter, r *http.Request) {
 		out := []Manufacturer{}
 		for rows.Next() {
 			var (
-				id        int64
-				name, slug, owner string
-				ver int
-				verBy sql.NullString
-				verAt sql.NullInt64
+				id      int64
+				name    string
+				slug    string
+				owner   string
+				ver     int
+				verBy   sql.NullString
+				verAt   sql.NullInt64
 				created int64
 			)
 			if err := rows.Scan(&id, &name, &slug, &owner, &ver, &verBy, &verAt, &created); err != nil {
@@ -466,7 +547,7 @@ func manufacturersRoot(w http.ResponseWriter, r *http.Request) {
 				Slug:       slug,
 				Owner:      owner,
 				Verified:   ver == 1,
-				VerifiedBy: verBy.String,
+				VerifiedBy: ifEmpty(verBy.String, ""),
 				VerifiedAt: verAt.Int64,
 				CreatedAt:  created,
 			})
@@ -493,11 +574,13 @@ func manufacturersItem(w http.ResponseWriter, r *http.Request) {
 
 		if len(parts) == 1 && r.Method == http.MethodGet {
 			var (
-				id        int64
-				name, sl, owner string
-				ver int
-				verBy sql.NullString
-				verAt sql.NullInt64
+				id      int64
+				name    string
+				sl      string
+				owner   string
+				ver     int
+				verBy   sql.NullString
+				verAt   sql.NullInt64
 				created int64
 			)
 			err := db.QueryRow(`SELECT id,name,slug,owner,verified,verified_by,verified_at,created_at FROM manufacturers WHERE slug=?`, slug).
@@ -516,7 +599,7 @@ func manufacturersItem(w http.ResponseWriter, r *http.Request) {
 				Slug:       sl,
 				Owner:      owner,
 				Verified:   ver == 1,
-				VerifiedBy: verBy.String,
+				VerifiedBy: ifEmpty(verBy.String, ""),
 				VerifiedAt: verAt.Int64,
 				CreatedAt:  created,
 			})
@@ -537,11 +620,13 @@ func manufacturersItem(w http.ResponseWriter, r *http.Request) {
 			}
 			// return updated
 			var (
-				id        int64
-				name, sl, owner string
-				ver int
-				verBy sql.NullString
-				verAt sql.NullInt64
+				id      int64
+				name    string
+				sl      string
+				owner   string
+				ver     int
+				verBy   sql.NullString
+				verAt   sql.NullInt64
 				created int64
 			)
 			err = db.QueryRow(`SELECT id,name,slug,owner,verified,verified_by,verified_at,created_at FROM manufacturers WHERE slug=?`, slug).
@@ -560,7 +645,7 @@ func manufacturersItem(w http.ResponseWriter, r *http.Request) {
 				Slug:       sl,
 				Owner:      owner,
 				Verified:   ver == 1,
-				VerifiedBy: verBy.String,
+				VerifiedBy: ifEmpty(verBy.String, ""),
 				VerifiedAt: verAt.Int64,
 				CreatedAt:  created,
 			})
@@ -573,7 +658,7 @@ func manufacturersItem(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-/* ========================= Handlers: Products ========================= */
+/* ========================= Products handlers ========================= */
 
 type createReq struct {
 	Name           string `json:"name"`                     // required
@@ -612,7 +697,6 @@ func manufacturerCreateProduct(w http.ResponseWriter, r *http.Request) {
 
 	brandSlug := strings.TrimSpace(req.Brand)
 	if brandSlug != "" {
-		// ensure brand exists and belongs to requester
 		var owner string
 		err := db.QueryRow(`SELECT owner FROM manufacturers WHERE slug=?`, brandSlug).Scan(&owner)
 		if err == sql.ErrNoRows {
@@ -634,18 +718,14 @@ func manufacturerCreateProduct(w http.ResponseWriter, r *http.Request) {
 		edTotal = 1
 	}
 
-	// base metadata fields
 	img := strings.TrimSpace(req.Image)
 	mfgAt := strings.TrimSpace(req.ManufacturedAt)
 	if mfgAt == "" {
 		mfgAt = time.Now().Format("2006-01-02")
 	}
-
 	now := time.Now().UnixMilli()
 
 	created := []Product{}
-
-	// create edTotal items
 	for i := 1; i <= edTotal; i++ {
 		serial := genSerialFromName(name, i, edTotal)
 		meta := Metadata{
@@ -676,18 +756,15 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		}
 		id, _ := res.LastInsertId()
 
-		// public URL
 		publicURL := ""
 		if publicBase != "" {
 			publicURL = fmt.Sprintf("%s/details.html?id=%d", publicBase, id)
 		}
 		_, _ = db.Exec(`UPDATE products SET public_url=? WHERE id=?`, publicURL, id)
 
-		// ownership history
 		_, _ = db.Exec(`INSERT INTO ownership_history (product_id, owner, acquired_at) VALUES (?, ?, ?)`,
 			id, user, now)
 
-		// QR payload
 		payload := map[string]any{
 			"t":   "prod",
 			"std": "1155",
@@ -718,7 +795,6 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		})
 	}
 
-	// Response shape: single for count==1, array for batch
 	if len(created) == 1 {
 		writeJSON(w, http.StatusCreated, created[0])
 		return
@@ -729,8 +805,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	})
 }
 
-// GET /api/products  (with optional ?owner=)
-// Returns only products visible to the user (owner/seller). Admin can pass all=1.
+// GET /api/products  (?owner=...)  / ?all=1 for admins
 func productsList(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		returnOK(w)
@@ -952,7 +1027,6 @@ func verifyProduct(w http.ResponseWriter, r *http.Request) {
 		Version:        1,
 	}
 
-	// full data for owner or seller
 	if requester != "" && (requester == owner || requester == seller) {
 		resp := map[string]any{
 			"state":        state,
