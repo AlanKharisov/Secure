@@ -1,98 +1,111 @@
-// docs/auth-ui.js
-// UI авторизации: сокращённый email, фото, панель входа, бейдж бренда (пер-почтовый кэш)
-// Минималистичный и устойчивый UI авторизации.
-// Ожидает элементы с id: #authEmail, #authPhoto, #loginBtn, #logoutBtn,
-// #authPanel, #gLogin, #email, #password, #emailSignIn, #emailSignUp, #authErr, #accountLink
+(function(){
+  function setupAuthUI(scope) {
+    if (!scope) scope = document;
 
-(function () {
-  function setupAuthUI(scope = document) {
-    const $ = (s) => scope.querySelector(s);
+    function $(s){ return scope.querySelector(s); }
 
-    const emailEl = $("#authEmail");
-    const photoEl = $("#authPhoto");
-    const login   = $("#loginBtn");
-    const logout  = $("#logoutBtn");
-    const panel   = $("#authPanel");
-    const gLogin  = $("#gLogin");
-    const emailIn = $("#email");
-    const passIn  = $("#password");
-    const emailSignIn = $("#emailSignIn");
-    const emailSignUp = $("#emailSignUp");
-    const errBox  = $("#authErr");
-    const accountLink = $("#accountLink");
+    var emailEl = $('#authEmail');
+    var photoEl = $('#authPhoto');
+    var login   = $('#loginBtn');
+    var logout  = $('#logoutBtn');
+    var panel   = $('#authPanel');
+    var gLogin  = $('#gLogin');
+    var emailIn = $('#email');
+    var passIn  = $('#password');
+    var emailSignIn = $('#emailSignIn');
+    var emailSignUp = $('#emailSignUp');
+    var errBox  = $('#authErr');
+    var accountLink = $('#accountLink');
 
-    // Скрываем часть email на экране
-    const maskEmail = (e) => {
-      if (!e) return "";
-      const [name, dom] = e.split("@");
-      if (!dom) return e;
-      if (name.length <= 3) return name + "@" + dom;
-      return (name.slice(0, 2) + "…" + name.slice(-1)) + "@" + dom;
-    };
-
-    function showErr(msg) {
+    function showErr(msg){
       if (!errBox) return;
-      errBox.style.display = "block";
+      errBox.style.display = 'block';
       errBox.textContent = msg;
     }
-    function clearErr() {
+    function clearErr(){
       if (!errBox) return;
-      errBox.style.display = "none";
-      errBox.textContent = "";
+      errBox.style.display = 'none';
+      errBox.textContent = '';
     }
-
-    function setUser(u) {
+    function setUser(u){
       clearErr();
       if (u) {
-        if (emailEl) emailEl.textContent = maskEmail(u.email || u.uid);
+        if (emailEl) emailEl.textContent = u.email || u.displayName || u.uid || '';
         if (photoEl) {
-          if (u.photoURL) { photoEl.src = u.photoURL; photoEl.style.display = "inline-block"; }
-          else { photoEl.style.display = "none"; }
+          if (u.photoURL) { photoEl.src = u.photoURL; photoEl.style.display='inline-block'; }
+          else photoEl.style.display='none';
         }
-        if (login)  login.style.display = "none";
-        if (logout) logout.style.display = "inline-block";
-        if (panel)  panel.classList.add("hidden");
-        if (accountLink) accountLink.style.display = "inline-block";
+        if (login)  login.style.display = 'none';
+        if (logout) logout.style.display = 'inline-block';
+        if (panel)  panel.classList.add('hidden');
+        if (accountLink) accountLink.style.display = 'inline-block';
       } else {
-        if (emailEl) emailEl.textContent = "";
-        if (photoEl) photoEl.style.display = "none";
-        if (login)  login.style.display = "inline-block";
-        if (logout) logout.style.display = "none";
-        if (accountLink) accountLink.style.display = "none";
+        if (emailEl) emailEl.textContent = '';
+        if (photoEl) photoEl.style.display='none';
+        if (login)  login.style.display = 'inline-block';
+        if (logout) logout.style.display = 'none';
+        if (accountLink) accountLink.style.display = 'none';
       }
     }
 
-    document.addEventListener("auth-changed", (e) => setUser(e.detail));
-    if (window.Auth) setUser(window.Auth.user); // первичная инициализация
-
-    login?.addEventListener("click", () => { panel?.classList.toggle("hidden"); clearErr(); });
-    logout?.addEventListener("click", () => window.Auth?.signOut().catch((e) => showErr(e.message)));
-
-    gLogin?.addEventListener("click", async () => {
-      try { await window.Auth?.signInGoogle(); }
-      catch (e) { showErr(e.message); }
+    document.addEventListener('auth-changed', function(e){
+      setUser(e.detail);
     });
+    if (window.Auth) setUser(window.Auth.user);
 
-    emailSignIn?.addEventListener("click", async () => {
-      try {
+    if (login) {
+      login.addEventListener('click', function(){
+        if (!panel) return;
+        if (panel.classList.contains('hidden')) panel.classList.remove('hidden');
+        else panel.classList.add('hidden');
         clearErr();
-        await window.Auth?.signInEmail((emailIn?.value || "").trim(), (passIn?.value || "").trim());
-      } catch (e) { showErr(e.message); }
-    });
-    emailSignUp?.addEventListener("click", async () => {
-      try {
-        clearErr();
-        await window.Auth?.signUpEmail((emailIn?.value || "").trim(), (passIn?.value || "").trim());
-      } catch (e) { showErr(e.message); }
-    });
+      });
+    }
+    if (logout) {
+      logout.addEventListener('click', function(){
+        if (window.Auth && window.Auth.signOut) {
+          window.Auth.signOut().catch(function(e){ showErr(e.message); });
+        }
+      });
+    }
+    if (gLogin) {
+      gLogin.addEventListener('click', function(){
+        if (window.Auth && window.Auth.signInGoogle) {
+          window.Auth.signInGoogle().catch(function(e){ showErr(e.message); });
+        }
+      });
+    }
+    if (emailSignIn) {
+      emailSignIn.addEventListener('click', function(){
+        try {
+          clearErr();
+          var em = (emailIn && emailIn.value) ? String(emailIn.value).trim() : '';
+          var pw = (passIn && passIn.value) ? String(passIn.value).trim() : '';
+          if (window.Auth && window.Auth.signInEmail) {
+            window.Auth.signInEmail(em, pw).catch(function(e){ showErr(e.message); });
+          }
+        } catch(e){ showErr(e.message); }
+      });
+    }
+    if (emailSignUp) {
+      emailSignUp.addEventListener('click', function(){
+        try {
+          clearErr();
+          var em = (emailIn && emailIn.value) ? String(emailIn.value).trim() : '';
+          var pw = (passIn && passIn.value) ? String(passIn.value).trim() : '';
+          if (window.Auth && window.Auth.signUpEmail) {
+            window.Auth.signUpEmail(em, pw).catch(function(e){ showErr(e.message); });
+          }
+        } catch(e){ showErr(e.message); }
+      });
+    }
 
-    // клик вне панели — закрыть
-    document.addEventListener("click", (ev) => {
-      if (!panel || panel.classList.contains("hidden")) return;
-      const inside = panel.contains(ev.target) || (login && login.contains(ev.target));
-      if (!inside) panel.classList.add("hidden");
+    document.addEventListener('click', function(ev){
+      if (!panel || panel.classList.contains('hidden')) return;
+      var inside = panel.contains(ev.target) || (login && login.contains(ev.target));
+      if (!inside) panel.classList.add('hidden');
     });
   }
 
-  document.addEventListener("DOMContentLoaded", () => setupAuthUI(document));
+  document.addEventListener('DOMContentLoaded', function(){ setupAuthUI(document); });
 })();
