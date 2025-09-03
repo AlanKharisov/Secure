@@ -7,7 +7,7 @@
   // Добавь сюда свои e-mail'ы брендов/производителей
   var MANUFACTURERS = new Set([
     "alankharisov1@gmail.com"
-    // "brand2@example.com",
+    "torosyanemil2310@gmail.com",
     // "brand3@example.com",
   ]);
   function isManufacturer() {
