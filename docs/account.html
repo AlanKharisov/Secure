@@ -13,6 +13,7 @@
         .kpis .card{padding:10px;border-radius:12px;text-align:center}
         .thumb{width:42px;height:42px;border-radius:10px;border:1px solid var(--border);object-fit:cover;background:#0c1330}
     </style>
+    <script defer src="config.js"></script>
     <script type="module" src="firebase.js"></script>
     <script defer src="auth-ui.js"></script>
 </head>
@@ -129,13 +130,17 @@
     // завантажити товари користувача
     async function loadMy(u){
         const who = u.email || u.uid;
-        const res = await fetch(`${API}/api/products?owner=${encodeURIComponent(who)}`);
+        const res = await fetch(`${API}/api/products`, {
+            headers: { 'X-User': who }
+        });
         const list = await res.json();
         if (!Array.isArray(list)){
             $('#myBody').innerHTML = `<tr><td colspan="6" class="muted">Помилка завантаження</td></tr>`;
             return;
         }
-        renderList(list);
+        // хочеш лише мої як owner — відфільтруй тут:
+        const mine = list.filter(p => (p.owner || '').toLowerCase() === who.toLowerCase());
+        renderList(mine);
     }
 
     function renderList(list){
