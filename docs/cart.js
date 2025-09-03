@@ -37,13 +37,12 @@
     // ----- cart page logic -----
     const $ = (s)=>document.querySelector(s);
     function authUser() {
-        return (window.Auth && window.Auth.user)
-            ? (window.Auth.user.email || window.Auth.user.uid || "")
-            : "";
+    const u = (window.Auth && window.Auth.user) ? (window.Auth.user.email || window.Auth.user.uid) : "";
+    return (u || "").toString().trim().toLowerCase();
     }
     function authHeaders() {
-        const u = authUser();
-        return u ? { "X-User": u } : {};
+    const u = authUser();
+    return u ? { "X-User": u } : {};
     }
 
     function render(){
