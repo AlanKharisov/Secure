@@ -1,6 +1,7 @@
-// Локальный кошик + оформление покупки партиями
-(function(){
-    const API = (window.APP_CONFIG && window.APP_CONFIG.API_BASE) || window.location.origin;
+(function () {
+    const API = window.API_BASE || window.location.origin;
+    const $ = (s, sc=document) => sc.querySelector(s);
+
     const KEY = "marki.cart.v1";
 
     function read(){
@@ -34,28 +35,20 @@
     window.MCart = { read, save, add, remove, clear, count, exists, updateBadge };
     document.addEventListener("DOMContentLoaded", updateBadge);
 
-    // ----- cart page logic -----
-    const $ = (s)=>document.querySelector(s);
-    function authUser() {
-    const u = (window.Auth && window.Auth.user) ? (window.Auth.user.email || window.Auth.user.uid) : "";
-    return (u || "").toString().trim().toLowerCase();
-    }
-    function authHeaders() {
-    const u = authUser();
-    return u ? { "X-User": u } : {};
-    }
+    // ===== Page wiring (if exists) =====
+    const body = $("#cartBody");
+    const qty  = $("#cartQty");
+    const btn  = $("#checkoutBtn");
+    const msg  = $("#checkoutMsg");
 
     function render(){
-        const items = window.MCart?.read() || [];
-        const body = $("#cartBody");
-        const qty  = $("#cartQty");
         if (!body || !qty) return;
-
+        const items = read();
         body.innerHTML = "";
         if(!items.length){
             body.innerHTML = `<tr><td colspan="5" class="muted">Кошик порожній</td></tr>`;
             qty.textContent = "0";
-            $("#checkoutBtn") && ($("#checkoutBtn").disabled = !(window.Auth && window.Auth.user));
+            if (btn) btn.disabled = true;
             return;
         }
         items.forEach(item=>{
@@ -69,26 +62,25 @@
       `;
             body.appendChild(tr);
         });
-        body.querySelectorAll("[data-remove]").forEach(btn=>{
-            btn.addEventListener("click", ()=>{
-                window.MCart.remove(btn.getAttribute("data-remove"));
+        body.querySelectorAll("[data-remove]").forEach(b=>{
+            b.addEventListener("click", ()=>{
+                remove(b.getAttribute("data-remove"));
                 render();
             });
         });
         qty.textContent = String(items.length);
-        $("#checkoutBtn") && ($("#checkoutBtn").disabled = !(window.Auth && window.Auth.user));
+
+        // Увімкнути оформлення лише коли є користувач
+        if (btn) btn.disabled = !(window.Auth && window.Auth.user);
     }
 
     async function checkout(){
-        const items = window.MCart.read();
+        const items = read();
         const user  = window.Auth?.user;
         if(!user){ alert("Будь ласка, увійдіть у свій акаунт."); return; }
         if(!items.length) return;
 
-        const btn = document.getElementById("checkoutBtn");
-        const msg = document.getElementById("checkoutMsg");
         if (!btn || !msg) return;
-
         btn.disabled = true; msg.style.display = "block";
         msg.className = "result"; msg.textContent = "Проводимо покупку...";
 
@@ -97,7 +89,7 @@
             try{
                 const r = await fetch(`${API}/api/products/${it.id}/purchase`, {
                     method:"POST",
-                    headers:{ "Content-Type":"application/json", ...authHeaders() },
+                    headers:{ "Content-Type":"application/json", "X-User": (user.email || user.uid) },
                     body: "{}"
                 });
                 const j = await r.json();
@@ -107,14 +99,14 @@
         }
 
         if (fail.length === 0){
-            window.MCart.clear();
+            clear();
             render();
             msg.className = "result ok";
             msg.innerHTML = "Готово! Усі товари позначені як придбані.<br>" +
                 "<b>Чек:</b><br>" + ok.map(o=>`#${o.id} — ${o.name} <span class="mono">(${o.serial})</span>`).join("<br>");
         } else {
-            const left = window.MCart.read().filter(x => !ok.some(o=>o.id===x.id));
-            window.MCart.save(left);
+            const left = read().filter(x => !ok.some(o=>o.id===x.id));
+            save(left);
             render();
             msg.className = "result warn";
             msg.innerHTML = `Частково виконано. Успішно: ${ok.length}, з помилкою: ${fail.length}.<br>` +
@@ -124,9 +116,9 @@
         btn.disabled = false;
     }
 
-    document.addEventListener("DOMContentLoaded", ()=>{
-        render();
-        document.getElementById("checkoutBtn")?.addEventListener("click", checkout);
-    });
+    if (btn) btn.addEventListener("click", checkout);
+    render();
+
+    // Перемикати доступність при зміні auth
     document.addEventListener("auth-changed", ()=> render());
 })();
