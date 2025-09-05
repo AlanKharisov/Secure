@@ -1,23 +1,23 @@
 (function () {
-  const $ = (s, sc=document) => sc.querySelector(s);
+  var $ = function (s, sc) { return (sc || document).querySelector(s); };
 
-  const emailEl = $("#authEmail");
-  const photoEl = $("#authPhoto");
-  const login   = $("#loginBtn");
-  const logout  = $("#logoutBtn");
-  const panel   = $("#authPanel");
-  const gLogin  = $("#gLogin");
-  const emailIn = $("#email");
-  const passIn  = $("#password");
-  const emailSignIn = $("#emailSignIn");
-  const emailSignUp = $("#emailSignUp");
-  const errBox  = $("#authErr");
-  const accountLink = $("#accountLink");
-  const brandChips = $("#brandChips");
+  var emailEl = $("#authEmail");
+  var photoEl = $("#authPhoto");
+  var login   = $("#loginBtn");
+  var logout  = $("#logoutBtn");
+  var panel   = $("#authPanel");
+  var gLogin  = $("#gLogin");
+  var emailIn = $("#email");
+  var passIn  = $("#password");
+  var emailSignIn = $("#emailSignIn");
+  var emailSignUp = $("#emailSignUp");
+  var errBox  = $("#authErr");
+  var accountLink = $("#accountLink");
+  var brandChips = $("#brandChips");
 
-  const adminTab = $("#adminTab");
-  const manufTab = $("#manufTab");
-  const userTab  = $("#userTab");
+  var adminTab = $("#adminTab");
+  var manufTab = $("#manufTab");
+  var userTab  = $("#userTab");
 
   function showErr(msg){
     if (!errBox) return;
@@ -29,73 +29,73 @@
     errBox.style.display = "none";
     errBox.textContent = "";
   }
-
   function compactEmail(email) {
     if (!email) return "";
-    const [name, domain] = email.split("@");
-    if (!domain) return email;
-    const short = name.length > 3 ? (name.slice(0,2) + "…") : name;
-    return `${short}@${domain}`;
+    var parts = email.split("@");
+    if (parts.length < 2) return email;
+    var name = parts[0], domain = parts[1];
+    var short = name.length > 3 ? (name.slice(0,2) + "…") : name;
+    return short + "@" + domain;
   }
 
-  async function fetchJSON(url, opts = {}) {
-    const res = await fetch(url, opts);
-    if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
-    const ct = res.headers.get("content-type") || "";
-    if (!ct.includes("application/json")) return null;
-    return await res.json();
+  function fetchJSON(url, opts, expectJson) {
+    if (opts === void 0) opts = {};
+    if (expectJson === void 0) expectJson = true;
+    return fetch(url, opts).then(function(res){
+      if (!res.ok) return res.text().then(function(t){ throw new Error(t || ("HTTP " + res.status)); });
+      if (!expectJson) return null;
+      var ct = res.headers.get("content-type") || "";
+      if (ct.indexOf("application/json") === -1) return null;
+      return res.json();
+    });
   }
 
-  async function fetchMyBrands(email) {
-    if (!email) return [];
-
-    // 1) Спроба бекенда: /api/manufacturers?owner=email (якщо є)
-    try {
-      const url = `${window.API_BASE}/api/manufacturers?owner=${encodeURIComponent(email)}`;
-      const j = await fetchJSON(url, { headers: { "X-User": email } });
+  function fetchMyBrands(email) {
+    if (!email) return Promise.resolve([]);
+    // 1) бекенд
+    var url = (window.API_BASE || window.location.origin) + "/api/manufacturers?owner=" + encodeURIComponent(email);
+    return fetchJSON(url, { headers: { "X-User": email } }).then(function (j) {
       if (Array.isArray(j)) return j;
-    } catch {}
-
-    // 2) Фолбек із config.js
-    if (window.EMAIL_BRANDS && window.EMAIL_BRANDS[email]) {
-      return window.EMAIL_BRANDS[email];
-    }
-
-    // 3) Мʼякий фолбек: позначений як виробник без бренду
-    if (window.CLIENT_MANUFACTURERS && window.CLIENT_MANUFACTURERS.has(email)) {
-      return [{ name: "Your Brand", slug: "YOUR-BRAND", verified: false }];
-    }
-
-    return [];
+      return [];
+    }).catch(function(){
+      // 2) config.js
+      if (window.EMAIL_BRANDS && window.EMAIL_BRANDS[email]) {
+        return window.EMAIL_BRANDS[email];
+      }
+      // 3) fallback: виробник без брендів
+      if (window.CLIENT_MANUFACTURERS && window.CLIENT_MANUFACTURERS.has(email)) {
+        return [{ name: "Your Brand", slug: "YOUR-BRAND", verified: false }];
+      }
+      return [];
+    });
   }
 
   function renderBrandChips(list) {
     if (!brandChips) return;
     brandChips.innerHTML = "";
     if (!list || !list.length) {
-      const span = document.createElement("span");
+      var span = document.createElement("span");
       span.className = "muted small";
       span.textContent = "— у вас немає брендів —";
       brandChips.appendChild(span);
       return;
     }
-    list.forEach(b => {
-      const chip = document.createElement("span");
+    list.forEach(function(b){
+      var chip = document.createElement("span");
       chip.className = "badge";
       chip.textContent = b.name + (b.verified ? " ✓" : "");
       brandChips.appendChild(chip);
     });
   }
 
-  function setTabsVisibility({ isAdmin, isManufacturer }) {
+  function setTabsVisibility(isAdmin, isManufacturer) {
     if (adminTab) adminTab.style.display = isAdmin ? "" : "none";
     if (manufTab) manufTab.style.display = isManufacturer ? "" : "none";
-    // Якщо жодна не активна — активуємо користувача
-    const anyActive = document.querySelector(".tab.active");
+    var anyActive = document.querySelector(".tab.active");
     if (!anyActive && userTab) userTab.classList.add("active");
   }
 
-  async function onUserChange(u){
+  function onUserChange(u){
     clearErr();
     if (u) {
       if (emailEl) emailEl.textContent = compactEmail(u.email);
@@ -108,20 +108,20 @@
       if (panel)  panel.classList.add("hidden");
       if (accountLink) accountLink.style.display = "inline-block";
 
-      const email = u.email || u.uid;
+      var email = u.email || u.uid;
 
-      // Клієнтський фолбек-адмін (поки не читаємо з Firestore)
-      const isAdmin = !!(window.CLIENT_ADMINS && window.CLIENT_ADMINS.has(email));
+      var isAdmin = !!(window.CLIENT_ADMINS && window.CLIENT_ADMINS.has && window.CLIENT_ADMINS.has(email));
 
-      const brands = await fetchMyBrands(email);
-      const isManufacturer = Array.isArray(brands) && brands.length > 0;
+      fetchMyBrands(email).then(function(brands){
+        var isManufacturer = Array.isArray(brands) && brands.length > 0;
 
-      renderBrandChips(brands);
-      setTabsVisibility({ isAdmin, isManufacturer });
+        renderBrandChips(brands);
+        setTabsVisibility(isAdmin, isManufacturer);
 
-      document.dispatchEvent(new CustomEvent("roles-ready", {
-        detail: { email, isAdmin, isManufacturer, brands }
-      }));
+        document.dispatchEvent(new CustomEvent("roles-ready", {
+          detail: { email: email, isAdmin: isAdmin, isManufacturer: isManufacturer, brands: brands }
+        }));
+      });
     } else {
       if (emailEl) emailEl.textContent = "";
       if (photoEl) photoEl.style.display = "none";
@@ -129,43 +129,61 @@
       if (logout) logout.style.display = "none";
       if (accountLink) accountLink.style.display = "none";
       renderBrandChips([]);
-      setTabsVisibility({ isAdmin:false, isManufacturer:false });
+      setTabsVisibility(false, false);
       document.dispatchEvent(new CustomEvent("roles-ready", {
         detail: { email:"", isAdmin:false, isManufacturer:false, brands:[] }
       }));
     }
   }
 
-  document.addEventListener("auth-changed", (e) => onUserChange(e.detail));
+  document.addEventListener("auth-changed", function(e){ onUserChange(e.detail); });
 
-  login?.addEventListener("click", () => {
-    panel?.classList.toggle("hidden");
-    clearErr();
-  });
-  logout?.addEventListener("click", () => window.Auth?.signOut().catch(e => showErr(e.message)));
-  gLogin?.addEventListener("click", async () => {
-    try { await window.Auth?.signInGoogle(); }
-    catch(e){ showErr(e.message); }
-  });
-  emailSignIn?.addEventListener("click", async () => {
-    try {
+  if (login) {
+    login.addEventListener("click", function(){
+      if (panel) panel.classList.toggle("hidden");
       clearErr();
-      await window.Auth?.signInEmail((emailIn?.value||"").trim(), (passIn?.value||"").trim());
-    } catch(e){ showErr(e.message); }
-  });
-  emailSignUp?.addEventListener("click", async () => {
-    try {
+    });
+  }
+  if (logout) {
+    logout.addEventListener("click", function(){
+      if (window.Auth && window.Auth.signOut) {
+        window.Auth.signOut().catch(function(e){ showErr(e.message); });
+      }
+    });
+  }
+  if (gLogin) {
+    gLogin.addEventListener("click", function(){
+      if (window.Auth && window.Auth.signInGoogle) {
+        window.Auth.signInGoogle().catch(function(e){ showErr(e.message); });
+      }
+    });
+  }
+  if (emailSignIn) {
+    emailSignIn.addEventListener("click", function(){
       clearErr();
-      await window.Auth?.signUpEmail((emailIn?.value||"").trim(), (passIn?.value||"").trim());
-    } catch(e){ showErr(e.message); }
-  });
+      var em = (emailIn && emailIn.value || "").trim();
+      var pw = (passIn && passIn.value || "").trim();
+      if (window.Auth && window.Auth.signInEmail) {
+        window.Auth.signInEmail(em, pw).catch(function(e){ showErr(e.message); });
+      }
+    });
+  }
+  if (emailSignUp) {
+    emailSignUp.addEventListener("click", function(){
+      clearErr();
+      var em = (emailIn && emailIn.value || "").trim();
+      var pw = (passIn && passIn.value || "").trim();
+      if (window.Auth && window.Auth.signUpEmail) {
+        window.Auth.signUpEmail(em, pw).catch(function(e){ showErr(e.message); });
+      }
+    });
+  }
 
-  document.addEventListener("click", (ev) => {
+  document.addEventListener("click", function(ev){
     if (!panel || panel.classList.contains("hidden")) return;
-    const inside = panel.contains(ev.target) || (login && login.contains(ev.target));
+    var inside = panel.contains(ev.target) || (login && login.contains(ev.target));
     if (!inside) panel.classList.add("hidden");
   });
 
   if (window.Auth && window.Auth.user) onUserChange(window.Auth.user);
 })();
-
