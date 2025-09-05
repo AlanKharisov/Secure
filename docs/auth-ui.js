@@ -49,19 +49,19 @@
   async function fetchMyBrands(email) {
     if (!email) return [];
 
-    // 1) Спроба: бекенд надає ендпойнт списку брендів користувача
+    // 1) Спроба бекенда: /api/manufacturers?owner=email (якщо є)
     try {
       const url = `${window.API_BASE}/api/manufacturers?owner=${encodeURIComponent(email)}`;
       const j = await fetchJSON(url, { headers: { "X-User": email } });
       if (Array.isArray(j)) return j;
     } catch {}
 
-    // 2) Фолбек із config.js (пряме відображення email -> бренди)
+    // 2) Фолбек із config.js
     if (window.EMAIL_BRANDS && window.EMAIL_BRANDS[email]) {
       return window.EMAIL_BRANDS[email];
     }
 
-    // 3) Ще один мʼякий фолбек: якщо явно позначений як виробник без бренду
+    // 3) Мʼякий фолбек: позначений як виробник без бренду
     if (window.CLIENT_MANUFACTURERS && window.CLIENT_MANUFACTURERS.has(email)) {
       return [{ name: "Your Brand", slug: "YOUR-BRAND", verified: false }];
     }
@@ -90,8 +90,9 @@
   function setTabsVisibility({ isAdmin, isManufacturer }) {
     if (adminTab) adminTab.style.display = isAdmin ? "" : "none";
     if (manufTab) manufTab.style.display = isManufacturer ? "" : "none";
+    // Якщо жодна не активна — активуємо користувача
     const anyActive = document.querySelector(".tab.active");
-    if (!anyActive) userTab?.classList.add("active");
+    if (!anyActive && userTab) userTab.classList.add("active");
   }
 
   async function onUserChange(u){
@@ -109,8 +110,8 @@
 
       const email = u.email || u.uid;
 
-      // Клієнтський фолбек-адмін
-      let isAdmin = !!(window.CLIENT_ADMINS && window.CLIENT_ADMINS.has(email));
+      // Клієнтський фолбек-адмін (поки не читаємо з Firestore)
+      const isAdmin = !!(window.CLIENT_ADMINS && window.CLIENT_ADMINS.has(email));
 
       const brands = await fetchMyBrands(email);
       const isManufacturer = Array.isArray(brands) && brands.length > 0;
@@ -167,3 +168,4 @@
 
   if (window.Auth && window.Auth.user) onUserChange(window.Auth.user);
 })();
+
