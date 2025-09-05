@@ -1,177 +1,180 @@
 <!doctype html>
 <html lang="uk">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>MARKI Secure — Demo</title>
-  <link rel="stylesheet" href="styles.css">
-
-  <!-- Порядок скриптов важен -->
-  <script src="config.js"></script>
-  <script type="module" src="firebase.js"></script>
-  <script defer src="auth-ui.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
-  <script defer src="cart.js"></script>
-  <script defer src="app.js"></script>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>MARKI Secure — Demo</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Порядок важливий: config -> firebase (module) -> auth-ui -> інші -->
+    <script defer src="config.js"></script>
+    <script type="module" src="firebase.js"></script>
+    <script defer src="auth-ui.js"></script>
+    <script defer src="cart.js"></script>
+    <script defer src="app.js"></script>
 </head>
 <body>
 <div class="app">
-  <header class="topbar">
-    <div class="brand">
-      <div class="logo"></div>
-      <div class="name">
-        <h1>MARKI Secure</h1>
-        <p>Один QR → сторінка деталей</p>
-      </div>
-    </div>
-
-    <nav class="tabs">
-      <!-- Вкладка виробника снова видима (её дополнительно включает whitelist в app.js) -->
-      <button class="tab" data-tab="manufacturer">Виробник</button>
-      <button class="tab active" data-tab="user">Користувач</button>
-
-      <a class="cartbtn" href="cart.html">🛒 Кошик <span id="cartCount">0</span></a>
-
-      <!-- AUTH UI -->
-      <div class="authbox">
-        <img id="authPhoto" class="avatar" alt="" style="display:none">
-        <span id="authEmail" class="muted email-compact"></span>
-
-        <!-- Бренди поруч із email -->
-        <div id="myBrands" class="brandchips small"></div>
-
-        <button id="loginBtn"  class="btn">Увійти</button>
-        <button id="logoutBtn" class="btn ghost" style="display:none">Вийти</button>
-        <a id="accountLink" href="account.html" class="btn ghost" style="display:none">Мій акаунт</a>
-
-        <div id="authPanel" class="auth-panel hidden">
-          <button id="gLogin" class="btn wide">Увійти через Google</button>
-          <div class="muted small center" style="margin:6px 0">або email</div>
-          <input id="email" class="auth-input" placeholder="email">
-          <input id="password" class="auth-input" placeholder="пароль" type="password">
-          <div class="row" style="gap:8px">
-            <button id="emailSignIn" class="btn">Вхід</button>
-            <button id="emailSignUp" class="btn ghost">Реєстрація</button>
-          </div>
-          <div id="authErr" class="result bad" style="display:none; margin-top:8px"></div>
-        </div>
-      </div>
-    </nav>
-  </header>
-
-  <main class="container">
-    <!-- Виробник -->
-    <section id="manufacturer" class="tabpane">
-      <div class="card">
-        <h2>Реєстрація продукту</h2>
-        <form id="createForm" class="form">
-          <div class="field">
-            <label>Назва*</label>
-            <input name="name" id="name" placeholder="Наприклад, Coke Zero 330ml" required />
-          </div>
-
-          <div class="row">
-            <div class="field" id="brandField">
-              <label>Бренд</label>
-              <select name="brand" id="brand">
-                <option value="">— оберіть бренд —</option>
-              </select>
-              <div id="brandHint" class="small muted" style="display:none">Бренд вибрано автоматично</div>
+    <header class="topbar">
+        <div class="brand">
+            <div class="logo"></div>
+            <div class="name">
+                <h1>MARKI Secure</h1>
+                <p>Один QR → сторінка деталей</p>
             </div>
-            <div class="field">
-              <label>Дата виготовлення <span class="muted">(необов'язково)</span></label>
-              <input type="date" name="manufacturedAt" id="manufacturedAt" placeholder="дд.мм.рррр"/>
-            </div>
-          </div>
-
-          <div class="row">
-            <div class="field">
-              <label>Зображення (URL) <span class="muted">(необов'язково)</span></label>
-              <input type="url" name="image" id="image" placeholder="https://..."/>
-            </div>
-            <div class="field">
-              <label>Кількість в партії</label>
-              <input type="number" name="editionCount" id="editionCount" min="1" value="1"/>
-            </div>
-          </div>
-
-          <div class="actions">
-            <button class="btn primary">Створити продукт(и)</button>
-          </div>
-        </form>
-      </div>
-
-      <div id="createdBlock" class="card hidden">
-        <h3>Створено</h3>
-        <div class="created-body">
-          <div class="qrbox">
-            <div id="publicQR"></div>
-            <div class="row" style="gap:8px;margin-top:8px">
-              <button id="downloadQR" class="btn">Завантажити QR (PNG)</button>
-              <button id="copyUrl" class="btn ghost">Скопіювати URL</button>
-            </div>
-            <span class="small muted">Надрукуй і наклей на продукт</span>
-          </div>
-          <div class="meta">
-            <div><b>TokenId / Партія:</b> <span id="createdId"></span></div>
-            <div><b>Стан:</b> <span class="badge" id="createdState"></span></div>
-            <div class="mono"><b>Публічне посилання:</b> <span id="createdUrl"></span></div>
-          </div>
         </div>
-      </div>
 
-      <div class="card">
-        <h3>Всі продукти</h3>
-        <div class="tablewrap">
-          <table class="table" id="productsTable">
-            <thead>
-            <tr>
-              <th>TokenId</th><th>Назва</th><th>Серійний</th><th>Edition</th><th>Бренд</th><th>Стан</th><th>Дії</th>
-            </tr>
-            </thead>
-            <tbody id="productsBody">
-            <tr><td colspan="7" class="muted">Ще немає продуктів</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
+        <nav class="tabs">
+            <button class="tab" data-tab="admin" id="adminTab" style="display:none">Адмін</button>
+            <button class="tab" data-tab="manufacturer" id="manufTab" style="display:none">Виробник</button>
+            <button class="tab active" data-tab="user" id="userTab">Користувач</button>
 
-    <!-- Користувач -->
-    <section id="user" class="tabpane active">
-      <div class="card">
-        <h2>Як це працює</h2>
-        <p class="muted">Скануйте QR — відкриється <code>details.html?id=…</code>.</p>
-        <div class="row">
-          <div class="field">
-            <label>Ввести TokenId вручну (для тесту)</label>
-            <input id="manualId" placeholder="наприклад, 1">
-          </div>
-          <div style="align-self:end">
-            <button class="btn" id="openDetails">Відкрити деталі</button>
-          </div>
-        </div>
-      </div>
+            <a class="cartbtn" href="cart.html">🛒 Кошик <span id="cartCount">0</span></a>
 
-      <div class="card">
-        <h3>Мої товари</h3>
-        <div class="tablewrap">
-          <table class="table">
-            <thead>
-            <tr>
-              <th></th><th>Назва</th><th>Серійний</th><th>TokenId</th><th>Стан</th><th>Деталі</th>
-            </tr>
-            </thead>
-            <tbody id="myBody">
-            <tr><td colspan="6" class="muted">Увійдіть, щоб побачити свої товари</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-  </main>
+            <!-- AUTH UI -->
+            <div class="authbox">
+                <img id="authPhoto" class="avatar" alt="" style="display:none">
+                <span id="authEmail" class="muted email-compact"></span>
 
-  <footer class="footer">© 2025 MARKI Secure (Demo)</footer>
+                <!-- Бейджі брендів (показує auth-ui.js) -->
+                <div id="brandChips" class="brandchips"></div>
+
+                <button id="loginBtn"  class="btn">Увійти</button>
+                <button id="logoutBtn" class="btn ghost" style="display:none">Вийти</button>
+                <a id="accountLink" href="account.html" class="btn ghost" style="display:none">Мій акаунт</a>
+
+                <!-- Панель входу -->
+                <div id="authPanel" class="auth-panel hidden">
+                    <button id="gLogin" class="btn wide">Увійти через Google</button>
+                    <div class="muted small center" style="margin:6px 0">або email</div>
+                    <input id="email" class="auth-input" placeholder="email">
+                    <input id="password" class="auth-input" placeholder="пароль" type="password">
+                    <div class="row" style="gap:8px">
+                        <button id="emailSignIn" class="btn">Вхід</button>
+                        <button id="emailSignUp" class="btn ghost">Реєстрація</button>
+                    </div>
+                    <div id="authErr" class="result bad" style="display:none; margin-top:8px"></div>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <main class="container">
+        <!-- Адмін -->
+        <section id="admin" class="tabpane" style="display:none">
+            <div class="card">
+                <h2>Всі продукти</h2>
+                <div class="tablewrap">
+                    <table class="table">
+                        <thead>
+                        <tr>
+                            <th>TokenId</th><th>Назва</th><th>Серійний</th><th>Edition</th><th>Бренд</th><th>Стан</th><th>Дії</th>
+                        </tr>
+                        </thead>
+                        <tbody id="allBody">
+                        <tr><td colspan="7" class="muted">Завантаження…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Виробник -->
+        <section id="manufacturer" class="tabpane" style="display:none">
+            <div class="card">
+                <h2>Реєстрація продукту</h2>
+                <form id="createForm" class="form">
+                    <div class="row">
+                        <div class="field">
+                            <label>Назва*</label>
+                            <input name="name" id="name" placeholder="Наприклад, Coke Zero 330ml" required />
+                        </div>
+                        <div class="field">
+                            <label>Дата виготовлення (необов'язково)</label>
+                            <input name="mfg" id="mfg" placeholder="дд.мм.гггг" />
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="field">
+                            <label>Зображення (URL) (необов'язково)</label>
+                            <input name="image" id="image" placeholder="https://..." />
+                        </div>
+                        <div class="field">
+                            <label>Кількість в партії</label>
+                            <input name="edition" id="edition" type="number" min="1" value="1" />
+                        </div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn primary">Створити продукт(и)</button>
+                    </div>
+                </form>
+            </div>
+
+            <div id="createdBlock" class="card hidden">
+                <h3>Створено</h3>
+                <div class="created-body">
+                    <div class="qrbox">
+                        <div id="publicQR"></div>
+                        <div class="row" style="gap:8px;margin-top:8px">
+                            <button id="downloadQR" class="btn">Завантажити QR (PNG)</button>
+                            <button id="copyUrl" class="btn ghost">Скопіювати URL</button>
+                        </div>
+                        <span class="small muted">Надрукуй і наклей на продукт</span>
+                    </div>
+                    <div class="meta">
+                        <div><b>TokenId:</b> <span id="createdId"></span></div>
+                        <div><b>Стан:</b> <span class="badge" id="createdState"></span></div>
+                        <div class="mono"><b>Публічне посилання:</b> <span id="createdUrl"></span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Мої продукти (виробник)</h3>
+                <div class="tablewrap">
+                    <table class="table" id="productsTable">
+                        <thead>
+                        <tr>
+                            <th>TokenId</th><th>Назва</th><th>Серійний</th><th>Edition</th><th>Стан</th><th>Дії</th>
+                        </tr>
+                        </thead>
+                        <tbody id="productsBody">
+                        <tr><td colspan="6" class="muted">Ще немає продуктів</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Користувач -->
+        <section id="user" class="tabpane active">
+            <div class="card">
+                <h2>Мої товари</h2>
+                <div class="kpis row">
+                    <div class="card result ok" style="flex:1;min-width:160px"><div>Придбані</div><div id="kPurchased" style="font-size:22px;font-weight:700">0</div></div>
+                    <div class="card result" style="flex:1;min-width:160px"><div>Створені (ваші)</div><div id="kCreated" style="font-size:22px;font-weight:700">0</div></div>
+                    <div class="card result warn" style="flex:1;min-width:160px"><div>Клеймнуті</div><div id="kClaimed" style="font-size:22px;font-weight:700">0</div></div>
+                </div>
+                <div class="tablewrap">
+                    <table class="table">
+                        <thead>
+                        <tr>
+                            <th></th><th>Назва</th><th>Серійний</th><th>TokenId</th><th>Стан</th><th>Деталі</th>
+                        </tr>
+                        </thead>
+                        <tbody id="myBody">
+                        <tr><td colspan="6" class="muted">Увійдіть, щоб побачити свої товари</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">© 2025 MARKI Secure (Demo)</footer>
 </div>
+
+<!-- QRCode (для блоку створення) -->
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
 </body>
+</html>
 </html>
