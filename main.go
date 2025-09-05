@@ -1,6 +1,8 @@
+// main.go
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
@@ -13,12 +15,30 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"cloud.google.com/go/firestore"
+	"google.golang.org/api/option"
 	_ "modernc.org/sqlite"
 )
 
-/* ========================= Types ========================= */
+/*
+ENV, які варто встановити у проді (Render):
+
+PUBLIC_BASE = https://app.world-of-photo.com
+PORT = 5000
+
+# опціонально: початкові адміни (через кому, нижній регістр не обов'язковий)
+ADMIN_USERS = you@example.com,cofounder@site.com
+
+# Firestore дзеркалення (опціонально; якщо не задано — просто вимкнено)
+FIRESTORE_PROJECT_ID = your-gcp-project-id
+# один з варіантів автентифікації:
+GOOGLE_APPLICATION_CREDENTIALS = /path/to/service-account.json
+# або, якщо зручніше тримати JSON у змінній:
+FIREBASE_SERVICE_ACCOUNT_JSON = { ... JSON ... }
+*/
 
 type State string
 
@@ -40,6 +60,7 @@ type Metadata struct {
 
 type Product struct {
 	ID           int64    `json:"id"`
+	BrandSlug    string   `json:"brandSlug,omitempty"`
 	Meta         Metadata `json:"meta"`
 	IPFSHash     string   `json:"ipfsHash,omitempty"`
 	SerialHash   string   `json:"serialHash,omitempty"`
@@ -49,13 +70,8 @@ type Product struct {
 	PublicURL    string   `json:"publicUrl,omitempty"`
 	Owner        string   `json:"owner,omitempty"`
 	Seller       string   `json:"seller,omitempty"`
-	Brand        string   `json:"brand,omitempty"`        // slug
-	EditionTotal int      `json:"editionTotal,omitempty"` // total in batch
-	EditionNo    int      `json:"editionNo,omitempty"`    // 1..EditionTotal
-}
-
-type ErrorResp struct {
-	Error string `json:"error"`
+	EditionNo    int      `json:"editionNo,omitempty"`
+	EditionTotal int      `json:"editionTotal,omitempty"`
 }
 
 type Manufacturer struct {
@@ -69,20 +85,79 @@ type Manufacturer struct {
 	CreatedAt  int64  `json:"createdAt"`
 }
 
-/* ========================= Globals ========================= */
+type ErrorResp struct {
+	Error string `json:"error"`
+}
 
 var (
 	db         *sql.DB
 	publicBase = strings.TrimRight(os.Getenv("PUBLIC_BASE"), "/")
 )
 
-var adminUsers = map[string]bool{}
+// ---------- Firestore (optional) ----------
+var (
+	fsOnce       sync.Once
+	fsClient     *firestore.Client
+	fsProjectID  = strings.TrimSpace(os.Getenv("FIRESTORE_PROJECT_ID"))
+	fsJSONInline = strings.TrimSpace(os.Getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
+	fsEnabled    = false
+)
 
-func isAdmin(user string) bool {
-	return adminUsers[strings.ToLower(strings.TrimSpace(user))]
+func initFirestore(ctx context.Context) {
+	fsOnce.Do(func() {
+		if fsProjectID == "" {
+			log.Println("[fs] disabled: FIRESTORE_PROJECT_ID empty")
+			return
+		}
+		var client *firestore.Client
+		var err error
+		if fsJSONInline != "" {
+			client, err = firestore.NewClient(ctx, fsProjectID, option.WithCredentialsJSON([]byte(fsJSONInline)))
+		} else {
+			// relies on GOOGLE_APPLICATION_CREDENTIALS or default creds
+			client, err = firestore.NewClient(ctx, fsProjectID)
+		}
+		if err != nil {
+			log.Printf("[fs] init error: %v (disabled)\n", err)
+			return
+		}
+		fsClient = client
+		fsEnabled = true
+		log.Println("[fs] enabled for project:", fsProjectID)
+	})
 }
 
-/* ========================= Utils ========================= */
+func fsClose() {
+	if fsClient != nil {
+		_ = fsClient.Close()
+	}
+}
+
+func fsWrite(path string, data map[string]any) {
+	if !fsEnabled || fsClient == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	_, err := fsClient.Doc(path).Set(ctx, data, firestore.MergeAll)
+	if err != nil {
+		log.Printf("[fs] set %s error: %v\n", path, err)
+	}
+}
+
+func fsAdd(collection string, data map[string]any) {
+	if !fsEnabled || fsClient == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	_, _, err := fsClient.Collection(collection).Add(ctx, data)
+	if err != nil {
+		log.Printf("[fs] add %s error: %v\n", collection, err)
+	}
+}
+
+// ---------- utils ----------
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -108,13 +183,13 @@ func withCORS(h http.HandlerFunc) http.HandlerFunc {
 func currentUser(r *http.Request) string {
 	u := strings.TrimSpace(r.Header.Get("X-User"))
 	if u == "" {
-		u = strings.TrimSpace(r.URL.Query().Get("user"))
+		u = strings.TrimSpace(r.URL.Query().Get("user")) // for local tests
 	}
-	return strings.ToLower(u)
+	return u
 }
 
 func slugify(s string) string {
-	s = strings.ToUpper(s)
+	s = strings.ToUpper(strings.TrimSpace(s))
 	var b strings.Builder
 	prevDash := false
 	for _, r := range s {
@@ -140,18 +215,19 @@ func slugify(s string) string {
 }
 
 func shortID() string {
-	base := strconv.FormatInt(time.Now().UnixNano(), 36)
-	if len(base) < 6 {
-		return strings.ToUpper(base)
+	raw := strconv.FormatInt(time.Now().UnixNano(), 36)
+	up := strings.ToUpper(raw)
+	if len(up) < 6 {
+		return up
 	}
-	return strings.ToUpper(base[len(base)-6:])
+	return up[len(up)-6:]
 }
 
-func genSerialFromName(name string, edNo, edTotal int) string {
-	base := slugify(name)
+func genSerial(baseName string, editionNo, editionTotal int) string {
+	base := slugify(baseName)
 	y := time.Now().Year()
-	if edTotal > 1 {
-		return fmt.Sprintf("%s-%d-%s-%dOF%d", base, y, shortID(), edNo, edTotal)
+	if editionTotal > 1 && editionNo > 0 {
+		return fmt.Sprintf("%s-%d-%d/%d-%s", base, y, editionNo, editionTotal, shortID())
 	}
 	return fmt.Sprintf("%s-%d-%s", base, y, shortID())
 }
@@ -165,18 +241,16 @@ func mustJSON(v any) []byte {
 	b, _ := json.Marshal(v)
 	return b
 }
-
-func mockSign(payload any) string {
-	h := sha256.Sum256(mustJSON(payload))
-	return base64.RawURLEncoding.EncodeToString(h[:])
-}
-
 func mustJSONString(v any) string {
 	b, _ := json.Marshal(v)
 	if b == nil {
 		return "null"
 	}
 	return string(b)
+}
+func mockSign(payload any) string {
+	h := sha256.Sum256(mustJSON(payload))
+	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
 func ifEmpty(s, def string) string {
@@ -186,7 +260,7 @@ func ifEmpty(s, def string) string {
 	return s
 }
 
-/* ========================= DB ========================= */
+// ---------- DB ----------
 
 func mustInitDB() {
 	if err := os.MkdirAll("./data", 0o755); err != nil {
@@ -205,6 +279,7 @@ func mustInitDB() {
 	schema := `
 CREATE TABLE IF NOT EXISTS products (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  brand_slug      TEXT,
   name            TEXT    NOT NULL,
   manufactured_at TEXT,
   serial          TEXT    NOT NULL,
@@ -219,13 +294,11 @@ CREATE TABLE IF NOT EXISTS products (
   price_cents     INTEGER NOT NULL DEFAULT 0,
   currency        TEXT    NOT NULL DEFAULT 'EUR',
   public_url      TEXT,
-  brand_slug      TEXT,
-  edition_total   INTEGER NOT NULL DEFAULT 1,
-  edition_no      INTEGER NOT NULL DEFAULT 1
+  edition_no      INTEGER NOT NULL DEFAULT 1,
+  edition_total   INTEGER NOT NULL DEFAULT 1
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_products_serial ON products(serial);
 CREATE INDEX IF NOT EXISTS ix_products_state ON products(state);
-CREATE INDEX IF NOT EXISTS ix_products_owner ON products(owner);
 CREATE INDEX IF NOT EXISTS ix_products_brand ON products(brand_slug);
 
 CREATE TABLE IF NOT EXISTS claim_tickets (
@@ -239,7 +312,6 @@ CREATE TABLE IF NOT EXISTS claim_tickets (
   payload    TEXT,
   FOREIGN KEY(token_id) REFERENCES products(id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_claim_token ON claim_tickets(token_id);
 
 CREATE TABLE IF NOT EXISTS ownership_history (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -253,19 +325,18 @@ CREATE INDEX IF NOT EXISTS ix_ownhist_prod ON ownership_history(product_id);
 
 CREATE TABLE IF NOT EXISTS manufacturers (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  name         TEXT    NOT NULL,
-  slug         TEXT    NOT NULL UNIQUE,
-  owner        TEXT    NOT NULL,
+  name         TEXT NOT NULL,
+  slug         TEXT NOT NULL UNIQUE,
+  owner        TEXT NOT NULL,
   verified     INTEGER NOT NULL DEFAULT 0,
   verified_by  TEXT,
   verified_at  INTEGER,
   created_at   INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS ix_man_owner ON manufacturers(owner);
+CREATE INDEX IF NOT EXISTS ix_manuf_owner ON manufacturers(owner);
 
 CREATE TABLE IF NOT EXISTS admins (
-  email      TEXT PRIMARY KEY,
-  created_at INTEGER NOT NULL
+  email TEXT PRIMARY KEY
 );
 `
 	if _, err := db.Exec(schema); err != nil {
@@ -273,14 +344,14 @@ CREATE TABLE IF NOT EXISTS admins (
 	}
 
 	// best-effort ALTERs
+	_ = tryExec(`ALTER TABLE products ADD COLUMN brand_slug TEXT;`)
+	_ = tryExec(`ALTER TABLE products ADD COLUMN edition_no INTEGER NOT NULL DEFAULT 1;`)
+	_ = tryExec(`ALTER TABLE products ADD COLUMN edition_total INTEGER NOT NULL DEFAULT 1;`)
+	_ = tryExec(`ALTER TABLE products ADD COLUMN public_url TEXT;`)
 	_ = tryExec(`ALTER TABLE products ADD COLUMN owner TEXT;`)
 	_ = tryExec(`ALTER TABLE products ADD COLUMN seller TEXT;`)
 	_ = tryExec(`ALTER TABLE products ADD COLUMN price_cents INTEGER NOT NULL DEFAULT 0;`)
 	_ = tryExec(`ALTER TABLE products ADD COLUMN currency TEXT NOT NULL DEFAULT 'EUR';`)
-	_ = tryExec(`ALTER TABLE products ADD COLUMN public_url TEXT;`)
-	_ = tryExec(`ALTER TABLE products ADD COLUMN brand_slug TEXT;`)
-	_ = tryExec(`ALTER TABLE products ADD COLUMN edition_total INTEGER NOT NULL DEFAULT 1;`)
-	_ = tryExec(`ALTER TABLE products ADD COLUMN edition_no INTEGER NOT NULL DEFAULT 1;`)
 }
 
 func tryExec(sqlStmt string) error {
@@ -288,7 +359,21 @@ func tryExec(sqlStmt string) error {
 	return err
 }
 
-/* ========================= Admin bootstrap ========================= */
+func adminsCount() int {
+	var n int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM admins`).Scan(&n)
+	return n
+}
+
+func isAdmin(user string) bool {
+	u := strings.ToLower(strings.TrimSpace(user))
+	if u == "" {
+		return false
+	}
+	var exists int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM admins WHERE email=?`, u).Scan(&exists)
+	return exists > 0
+}
 
 func loadAdminsFromEnv() {
 	raw := strings.TrimSpace(os.Getenv("ADMIN_USERS"))
@@ -297,119 +382,60 @@ func loadAdminsFromEnv() {
 	}
 	for _, a := range strings.Split(raw, ",") {
 		a = strings.ToLower(strings.TrimSpace(a))
-		if a != "" {
-			adminUsers[a] = true
+		if a == "" {
+			continue
+		}
+		if _, err := db.Exec(`INSERT OR IGNORE INTO admins(email) VALUES (?)`, a); err != nil {
+			log.Printf("admin insert failed for %s: %v\n", a, err)
 		}
 	}
 }
 
-func loadAdminsFromDB() {
-	rows, err := db.Query(`SELECT email FROM admins`)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var e string
-		if err := rows.Scan(&e); err == nil {
-			adminUsers[strings.ToLower(strings.TrimSpace(e))] = true
-		}
-	}
-}
-
-func adminsRoot(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodOptions:
-		returnOK(w)
-		return
-	case http.MethodGet:
-		u := currentUser(r)
-		if !isAdmin(u) {
-			writeJSON(w, http.StatusForbidden, ErrorResp{"admin only"})
-			return
-		}
-		var list []string
-		rows, err := db.Query(`SELECT email FROM admins ORDER BY email`)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
-			return
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var e string
-			_ = rows.Scan(&e)
-			list = append(list, e)
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"admins": list})
-	case http.MethodPost:
-		// POST /api/admins/bootstrap  — если нет админов вообще, сделать текущего (X-User) админом
-		if strings.HasSuffix(r.URL.Path, "/bootstrap") {
-			u := currentUser(r)
-			if u == "" {
-				writeJSON(w, http.StatusUnauthorized, ErrorResp{"missing user"})
-				return
-			}
-			var cnt int
-			_ = db.QueryRow(`SELECT COUNT(1) FROM admins`).Scan(&cnt)
-			if cnt > 0 {
-				writeJSON(w, http.StatusForbidden, ErrorResp{"already initialized"})
-				return
-			}
-			now := time.Now().UnixMilli()
-			if _, err := db.Exec(`INSERT INTO admins(email, created_at) VALUES(?,?)`, u, now); err != nil {
-				writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
-				return
-			}
-			adminUsers[u] = true
-			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "admin": u})
-			return
-		}
-		writeJSON(w, http.StatusNotFound, ErrorResp{"not found"})
-	default:
-		writeJSON(w, http.StatusMethodNotAllowed, ErrorResp{"Method not allowed"})
-	}
-}
-
-/* ========================= HTTP ========================= */
+// ---------- HTTP ----------
 
 func main() {
 	mustInitDB()
-	loadAdminsFromEnv() // опционально
-	loadAdminsFromDB()  // основное хранение — в БД
+	defer fsClose()
+	initFirestore(context.Background())
+	loadAdminsFromEnv()
 
 	mux := http.NewServeMux()
 
 	// health
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{
+		writeJSON(w, 200, map[string]any{
 			"ok":         true,
 			"time":       time.Now().UTC(),
 			"publicBase": publicBase,
-			"admins":     len(adminUsers),
+			"admins":     adminsCount(),
 		})
 	})
 
-	// Admins
-	mux.HandleFunc("/api/admins", withCORS(adminsRoot))                  // GET
-	mux.HandleFunc("/api/admins/bootstrap", withCORS(adminsRoot))        // POST
+	// me (roles + my brands)
+	mux.HandleFunc("/api/me", withCORS(handleMe))
 
-	// Manufacturers
-	mux.HandleFunc("/api/manufacturers", withCORS(manufacturersRoot))    // POST/GET
-	mux.HandleFunc("/api/manufacturers/", withCORS(manufacturersItem))   // GET/{slug}, POST/{slug}/verify
+	// admins bootstrap
+	mux.HandleFunc("/api/admins/bootstrap", withCORS(adminBootstrap))
 
-	// Products
+	// manufacturers
+	mux.HandleFunc("/api/manufacturers", withCORS(manufacturerCreateOrList)) // POST create, GET list mine
+	mux.HandleFunc("/api/manufacturers/", withCORS(manufacturerGetOrVerify)) // GET by slug, POST /verify
+
+	// products
 	mux.HandleFunc("/api/manufacturer/products", withCORS(manufacturerCreateProduct)) // POST
 	mux.HandleFunc("/api/products", withCORS(productsList))                           // GET
-	mux.HandleFunc("/api/products/", withCORS(productActions))                        // POST /purchase
-	mux.HandleFunc("/api/verify/", withCORS(verifyProduct))                           // GET /api/verify/{id}
+	mux.HandleFunc("/api/products/", withCORS(productActions))                        // POST /{id}/purchase
 
-	// public redirect
+	// verify public detail
+	mux.HandleFunc("/api/verify/", withCORS(verifyProduct)) // GET /api/verify/{id}
+
+	// short redirect to public
 	mux.HandleFunc("/p/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.URL.Path, "/p/")
 		http.Redirect(w, r, "/details.html?id="+id, http.StatusFound)
 	})
 
-	// static
+	// static from ./docs
 	root := os.Getenv("DOCS_DIR")
 	if root == "" {
 		wd, _ := os.Getwd()
@@ -428,244 +454,263 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
-/* ========================= Manufacturers handlers ========================= */
+// ---------- handlers ----------
 
+// /api/me  (GET)
+func handleMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		returnOK(w)
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
+		return
+	}
+	u := currentUser(r)
+	if u == "" {
+		writeJSON(w, 401, ErrorResp{"missing user"})
+		return
+	}
+	// my brands
+	rows, err := db.Query(`SELECT id,name,slug,owner,verified,COALESCE(verified_by,''),COALESCE(verified_at,0),created_at
+		FROM manufacturers WHERE owner=? ORDER BY id DESC`, u)
+	if err != nil {
+		writeJSON(w, 500, ErrorResp{err.Error()})
+		return
+	}
+	defer rows.Close()
+	var brands []Manufacturer
+	for rows.Next() {
+		var m Manufacturer
+		var verInt int
+		if err := rows.Scan(&m.ID, &m.Name, &m.Slug, &m.Owner, &verInt, &m.VerifiedBy, &m.VerifiedAt, &m.CreatedAt); err != nil {
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		m.Verified = verInt == 1
+		brands = append(brands, m)
+	}
+	resp := map[string]any{
+		"email":          u,
+		"isAdmin":        isAdmin(u),
+		"isManufacturer": len(brands) > 0,
+		"brands":         brands,
+	}
+	writeJSON(w, 200, resp)
+}
+
+// /api/admins/bootstrap  (POST) — тільки якщо адмінів у БД 0
+func adminBootstrap(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		returnOK(w)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
+		return
+	}
+	u := strings.ToLower(currentUser(r))
+	if u == "" {
+		writeJSON(w, 401, ErrorResp{"missing user"})
+		return
+	}
+	var n int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM admins`).Scan(&n)
+	if n > 0 {
+		writeJSON(w, 403, ErrorResp{"already initialized"})
+		return
+	}
+	if _, err := db.Exec(`INSERT INTO admins(email) VALUES (?)`, u); err != nil {
+		writeJSON(w, 500, ErrorResp{err.Error()})
+		return
+	}
+	// mirror
+	fsAdd("events", map[string]any{
+		"type": "bootstrap_admin", "byEmail": u, "at": time.Now(),
+	})
+	writeJSON(w, 200, map[string]any{"ok": true, "admin": u})
+}
+
+// /api/manufacturers  (POST create, GET list mine)
 type manufCreateReq struct {
 	Name string `json:"name"`
 }
 
-func manufacturersRoot(w http.ResponseWriter, r *http.Request) {
+func manufacturerCreateOrList(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodOptions:
 		returnOK(w)
 		return
-	case http.MethodPost:
-		user := currentUser(r)
-		if user == "" {
-			writeJSON(w, http.StatusUnauthorized, ErrorResp{"missing user"})
-			return
-		}
-		var req manufCreateReq
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Name) == "" {
-			writeJSON(w, http.StatusBadRequest, ErrorResp{"invalid json or name"})
-			return
-		}
-		name := strings.TrimSpace(req.Name)
-		slug := slugify(name)
-		now := time.Now().UnixMilli()
-
-		// if exists — return existing (200)
-		var (
-			id          int64
-			exName      string
-			exSlug      string
-			exOwner     string
-			ver         int
-			verBy       sql.NullString
-			verAt       sql.NullInt64
-			createdAt   int64
-		)
-		err := db.QueryRow(`SELECT id,name,slug,owner,verified,verified_by,verified_at,created_at FROM manufacturers WHERE slug=?`, slug).
-			Scan(&id, &exName, &exSlug, &exOwner, &ver, &verBy, &verAt, &createdAt)
-		if err == nil {
-			m := Manufacturer{
-				ID:         id,
-				Name:       exName,
-				Slug:       exSlug,
-				Owner:      exOwner,
-				Verified:   ver == 1,
-				VerifiedBy: ifEmpty(verBy.String, ""),
-				VerifiedAt: verAt.Int64,
-				CreatedAt:  createdAt,
-			}
-			writeJSON(w, http.StatusOK, m)
-			return
-		}
-		if err != nil && err != sql.ErrNoRows {
-			writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
-			return
-		}
-
-		res, err := db.Exec(`INSERT INTO manufacturers (name,slug,owner,created_at) VALUES (?,?,?,?)`,
-			name, slug, user, now)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, ErrorResp{fmt.Sprintf("db insert error: %v", err)})
-			return
-		}
-		newID, _ := res.LastInsertId()
-		writeJSON(w, http.StatusCreated, Manufacturer{
-			ID:        newID,
-			Name:      name,
-			Slug:      slug,
-			Owner:     user,
-			Verified:  false,
-			CreatedAt: now,
-		})
 	case http.MethodGet:
-		user := currentUser(r)
-		if user == "" {
-			writeJSON(w, http.StatusUnauthorized, ErrorResp{"missing user"})
+		u := currentUser(r)
+		if u == "" {
+			writeJSON(w, 401, ErrorResp{"missing user"})
 			return
 		}
-		all := r.URL.Query().Get("all") == "1"
-		ownerQ := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("owner")))
-
-		var rows *sql.Rows
-		var err error
-		if all && isAdmin(user) {
-			rows, err = db.Query(`SELECT id,name,slug,owner,verified,verified_by,verified_at,created_at FROM manufacturers ORDER BY id DESC`)
-		} else if ownerQ != "" && (ownerQ == user || isAdmin(user)) {
-			rows, err = db.Query(`SELECT id,name,slug,owner,verified,verified_by,verified_at,created_at FROM manufacturers WHERE owner=? ORDER BY id DESC`, ownerQ)
-		} else {
-			rows, err = db.Query(`SELECT id,name,slug,owner,verified,verified_by,verified_at,created_at FROM manufacturers WHERE owner=? ORDER BY id DESC`, user)
-		}
+		rows, err := db.Query(`SELECT id,name,slug,owner,verified,COALESCE(verified_by,''),COALESCE(verified_at,0),created_at
+			FROM manufacturers WHERE owner=? ORDER BY id DESC`, u)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
+			writeJSON(w, 500, ErrorResp{err.Error()})
 			return
 		}
 		defer rows.Close()
-
-		out := []Manufacturer{}
+		var out []Manufacturer
 		for rows.Next() {
-			var (
-				id      int64
-				name    string
-				slug    string
-				owner   string
-				ver     int
-				verBy   sql.NullString
-				verAt   sql.NullInt64
-				created int64
-			)
-			if err := rows.Scan(&id, &name, &slug, &owner, &ver, &verBy, &verAt, &created); err != nil {
-				writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
+			var m Manufacturer
+			var vi int
+			if err := rows.Scan(&m.ID, &m.Name, &m.Slug, &m.Owner, &vi, &m.VerifiedBy, &m.VerifiedAt, &m.CreatedAt); err != nil {
+				writeJSON(w, 500, ErrorResp{err.Error()})
 				return
 			}
-			out = append(out, Manufacturer{
-				ID:         id,
-				Name:       name,
-				Slug:       slug,
-				Owner:      owner,
-				Verified:   ver == 1,
-				VerifiedBy: ifEmpty(verBy.String, ""),
-				VerifiedAt: verAt.Int64,
-				CreatedAt:  created,
-			})
+			m.Verified = vi == 1
+			out = append(out, m)
 		}
-		writeJSON(w, http.StatusOK, out)
+		writeJSON(w, 200, out)
+		return
+	case http.MethodPost:
+		u := currentUser(r)
+		if u == "" {
+			writeJSON(w, 401, ErrorResp{"missing user"})
+			return
+		}
+		var req manufCreateReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, 400, ErrorResp{"invalid json"})
+			return
+		}
+		name := strings.TrimSpace(req.Name)
+		if name == "" {
+			writeJSON(w, 400, ErrorResp{"name is required"})
+			return
+		}
+		slug := slugify(name)
+		now := time.Now().UnixMilli()
+		res, err := db.Exec(`INSERT INTO manufacturers(name,slug,owner,verified,created_at) VALUES (?,?,?,?,?)`,
+			name, slug, u, 0, now)
+		if err != nil {
+			// if exists — віддамо поточний стан
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				var m Manufacturer
+				var vi int
+				err2 := db.QueryRow(`SELECT id,name,slug,owner,verified,COALESCE(verified_by,''),COALESCE(verified_at,0),created_at
+					FROM manufacturers WHERE slug=?`, slug).
+					Scan(&m.ID, &m.Name, &m.Slug, &m.Owner, &vi, &m.VerifiedBy, &m.VerifiedAt, &m.CreatedAt)
+				if err2 != nil {
+					writeJSON(w, 500, ErrorResp{fmt.Sprintf("conflict but fetch failed: %v", err2)})
+					return
+				}
+				m.Verified = vi == 1
+				writeJSON(w, 200, m)
+				return
+			}
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		id, _ := res.LastInsertId()
+		m := Manufacturer{
+			ID:        id,
+			Name:      name,
+			Slug:      slug,
+			Owner:     u,
+			Verified:  false,
+			CreatedAt: now,
+		}
+		// mirror brand + user link
+		fsWrite("brands/"+slug, map[string]any{
+			"name": name, "slug": slug, "ownerEmail": u, "verified": false, "createdAt": time.Now(),
+		})
+		fsAdd("events", map[string]any{
+			"type": "create_brand", "byEmail": u, "slug": slug, "at": time.Now(),
+		})
+		writeJSON(w, 201, m)
+		return
 	default:
-		writeJSON(w, http.StatusMethodNotAllowed, ErrorResp{"Method not allowed"})
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
 	}
 }
 
-func manufacturersItem(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodOptions:
+// /api/manufacturers/{slug}  (GET)  і  /api/manufacturers/{slug}/verify (POST admin)
+func manufacturerGetOrVerify(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
 		returnOK(w)
 		return
-	case http.MethodGet, http.MethodPost:
-		rest := strings.TrimPrefix(r.URL.Path, "/api/manufacturers/")
-		parts := strings.Split(strings.Trim(rest, "/"), "/")
-		if len(parts) == 0 || parts[0] == "" {
-			writeJSON(w, http.StatusNotFound, ErrorResp{"not found"})
-			return
-		}
-		slug := parts[0]
-
-		if len(parts) == 1 && r.Method == http.MethodGet {
-			var (
-				id      int64
-				name    string
-				sl      string
-				owner   string
-				ver     int
-				verBy   sql.NullString
-				verAt   sql.NullInt64
-				created int64
-			)
-			err := db.QueryRow(`SELECT id,name,slug,owner,verified,verified_by,verified_at,created_at FROM manufacturers WHERE slug=?`, slug).
-				Scan(&id, &name, &sl, &owner, &ver, &verBy, &verAt, &created)
-			if err == sql.ErrNoRows {
-				writeJSON(w, http.StatusNotFound, ErrorResp{"manufacturer not found"})
-				return
-			}
-			if err != nil {
-				writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
-				return
-			}
-			writeJSON(w, http.StatusOK, Manufacturer{
-				ID:         id,
-				Name:       name,
-				Slug:       sl,
-				Owner:      owner,
-				Verified:   ver == 1,
-				VerifiedBy: ifEmpty(verBy.String, ""),
-				VerifiedAt: verAt.Int64,
-				CreatedAt:  created,
-			})
-			return
-		}
-
-		if len(parts) == 2 && parts[1] == "verify" && r.Method == http.MethodPost {
-			user := currentUser(r)
-			if !isAdmin(user) {
-				writeJSON(w, http.StatusForbidden, ErrorResp{"admin only"})
-				return
-			}
-			now := time.Now().UnixMilli()
-			_, err := db.Exec(`UPDATE manufacturers SET verified=1, verified_by=?, verified_at=? WHERE slug=?`, user, now, slug)
-			if err != nil {
-				writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
-				return
-			}
-			// return updated
-			var (
-				id      int64
-				name    string
-				sl      string
-				owner   string
-				ver     int
-				verBy   sql.NullString
-				verAt   sql.NullInt64
-				created int64
-			)
-			err = db.QueryRow(`SELECT id,name,slug,owner,verified,verified_by,verified_at,created_at FROM manufacturers WHERE slug=?`, slug).
-				Scan(&id, &name, &sl, &owner, &ver, &verBy, &verAt, &created)
-			if err == sql.ErrNoRows {
-				writeJSON(w, http.StatusNotFound, ErrorResp{"manufacturer not found"})
-				return
-			}
-			if err != nil {
-				writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
-				return
-			}
-			writeJSON(w, http.StatusOK, Manufacturer{
-				ID:         id,
-				Name:       name,
-				Slug:       sl,
-				Owner:      owner,
-				Verified:   ver == 1,
-				VerifiedBy: ifEmpty(verBy.String, ""),
-				VerifiedAt: verAt.Int64,
-				CreatedAt:  created,
-			})
-			return
-		}
-
-		writeJSON(w, http.StatusNotFound, ErrorResp{"not found"})
-	default:
-		writeJSON(w, http.StatusMethodNotAllowed, ErrorResp{"Method not allowed"})
 	}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/manufacturers/")
+	parts := strings.Split(rest, "/")
+	if len(parts) == 0 || parts[0] == "" {
+		writeJSON(w, 404, ErrorResp{"not found"})
+		return
+	}
+	slug := slugify(parts[0])
+
+	if len(parts) == 1 && r.Method == http.MethodGet {
+		var m Manufacturer
+		var vi int
+		err := db.QueryRow(`SELECT id,name,slug,owner,verified,COALESCE(verified_by,''),COALESCE(verified_at,0),created_at
+			FROM manufacturers WHERE slug=?`, slug).
+			Scan(&m.ID, &m.Name, &m.Slug, &m.Owner, &vi, &m.VerifiedBy, &m.VerifiedAt, &m.CreatedAt)
+		if err == sql.ErrNoRows {
+			writeJSON(w, 404, ErrorResp{"manufacturer not found"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		m.Verified = vi == 1
+		writeJSON(w, 200, m)
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "verify" && r.Method == http.MethodPost {
+		u := currentUser(r)
+		if u == "" {
+			writeJSON(w, 401, ErrorResp{"missing user"})
+			return
+		}
+		if !isAdmin(u) {
+			writeJSON(w, 403, ErrorResp{"forbidden"})
+			return
+		}
+		now := time.Now().UnixMilli()
+		res, err := db.Exec(`UPDATE manufacturers SET verified=1, verified_by=?, verified_at=? WHERE slug=?`,
+			u, now, slug)
+		if err != nil {
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		aff, _ := res.RowsAffected()
+		if aff == 0 {
+			writeJSON(w, 404, ErrorResp{"manufacturer not found"})
+			return
+		}
+		var m Manufacturer
+		var vi int
+		_ = db.QueryRow(`SELECT id,name,slug,owner,verified,COALESCE(verified_by,''),COALESCE(verified_at,0),created_at
+			FROM manufacturers WHERE slug=?`, slug).
+			Scan(&m.ID, &m.Name, &m.Slug, &m.Owner, &vi, &m.VerifiedBy, &m.VerifiedAt, &m.CreatedAt)
+		m.Verified = vi == 1
+		// mirror
+		fsWrite("brands/"+slug, map[string]any{
+			"verified": true, "verifiedBy": u, "verifiedAt": time.Now(),
+		})
+		fsAdd("events", map[string]any{
+			"type": "verify_brand", "byEmail": u, "slug": slug, "at": time.Now(),
+		})
+		writeJSON(w, 200, m)
+		return
+	}
+
+	writeJSON(w, 404, ErrorResp{"not found"})
 }
 
-/* ========================= Products handlers ========================= */
-
+// /api/manufacturer/products  (POST) — створення 1..N штук (editionCount)
 type createReq struct {
 	Name           string `json:"name"`                     // required
+	Brand          string `json:"brand"`                    // slug, required for manufacturer
+	ManufacturedAt string `json:"manufacturedAt,omitempty"` // optional for manufacturer; required in user flow (але юзерів ми тут не обробляємо)
 	Image          string `json:"image,omitempty"`          // optional
-	ManufacturedAt string `json:"manufacturedAt,omitempty"` // optional (YYYY-MM-DD)
-	Brand          string `json:"brand,omitempty"`          // optional (slug)
-	EditionCount   int    `json:"editionCount,omitempty"`   // optional, default 1
+	EditionCount   int    `json:"editionCount,omitempty"`   // default 1
 }
 
 func manufacturerCreateProduct(w http.ResponseWriter, r *http.Request) {
@@ -674,112 +719,115 @@ func manufacturerCreateProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, ErrorResp{"Method not allowed"})
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
 		return
 	}
 
 	user := currentUser(r)
 	if user == "" {
-		writeJSON(w, http.StatusUnauthorized, ErrorResp{"missing user"})
+		writeJSON(w, 401, ErrorResp{"missing user"})
 		return
 	}
 
 	var req createReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, ErrorResp{"invalid json"})
+		writeJSON(w, 400, ErrorResp{"invalid json"})
 		return
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		writeJSON(w, http.StatusBadRequest, ErrorResp{"name is required"})
+		writeJSON(w, 400, ErrorResp{"name is required"})
+		return
+	}
+	brandSlug := slugify(req.Brand)
+	if brandSlug == "" {
+		writeJSON(w, 400, ErrorResp{"brand is required"})
+		return
+	}
+	// перевірка, що user — власник цього бренду
+	var owner string
+	err := db.QueryRow(`SELECT owner FROM manufacturers WHERE slug=?`, brandSlug).
+		Scan(&owner)
+	if err == sql.ErrNoRows {
+		writeJSON(w, 404, ErrorResp{"brand not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, 500, ErrorResp{err.Error()})
+		return
+	}
+	if strings.ToLower(owner) != strings.ToLower(user) && !isAdmin(user) {
+		writeJSON(w, 403, ErrorResp{"not your brand"})
 		return
 	}
 
-	brandSlug := strings.TrimSpace(req.Brand)
-	if brandSlug != "" {
-		var owner string
-		err := db.QueryRow(`SELECT owner FROM manufacturers WHERE slug=?`, brandSlug).Scan(&owner)
-		if err == sql.ErrNoRows {
-			writeJSON(w, http.StatusBadRequest, ErrorResp{"brand not found"})
-			return
-		}
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
-			return
-		}
-		if owner != user && !isAdmin(user) {
-			writeJSON(w, http.StatusForbidden, ErrorResp{"not an owner of the brand"})
-			return
-		}
+	editionTotal := req.EditionCount
+	if editionTotal <= 0 {
+		editionTotal = 1
 	}
 
-	edTotal := req.EditionCount
-	if edTotal <= 0 {
-		edTotal = 1
-	}
-
-	img := strings.TrimSpace(req.Image)
-	mfgAt := strings.TrimSpace(req.ManufacturedAt)
-	if mfgAt == "" {
-		mfgAt = time.Now().Format("2006-01-02")
-	}
+	// авто-поля
 	now := time.Now().UnixMilli()
+	manAt := strings.TrimSpace(req.ManufacturedAt)
+	if manAt == "" {
+		manAt = time.Now().Format("2006-01-02")
+	}
 
-	created := []Product{}
-	for i := 1; i <= edTotal; i++ {
-		serial := genSerialFromName(name, i, edTotal)
+	// batch create
+	type createdOut struct {
+		Product
+	}
+	var outs []createdOut
+
+	tx, err := db.Begin()
+	if err != nil {
+		writeJSON(w, 500, ErrorResp{err.Error()})
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for i := 1; i <= editionTotal; i++ {
+		serial := genSerial(name, i, editionTotal)
 		meta := Metadata{
 			Name:           name,
-			ManufacturedAt: mfgAt,
+			ManufacturedAt: manAt,
 			Serial:         serial,
 			Certificates:   []string{},
-			Image:          img,
+			Image:          strings.TrimSpace(req.Image),
 			Version:        1,
 		}
 		ipfsHash := sha256Hex(string(mustJSON(meta)))[:46]
 		serialHash := sha256Hex(serial)
 
 		certJSON := mustJSONString(meta.Certificates)
-		res, err := db.Exec(`
-INSERT INTO products (name, manufactured_at, serial, certificates, image, ipfs_hash, serial_hash, state, created_at, owner, seller, brand_slug, edition_total, edition_no)
+		res, err := tx.Exec(`
+INSERT INTO products (brand_slug, name, manufactured_at, serial, certificates, image, ipfs_hash, serial_hash, state, created_at, owner, seller, edition_no, edition_total)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			meta.Name, meta.ManufacturedAt, meta.Serial, certJSON, meta.Image,
-			ipfsHash, serialHash, string(StateCreated), now, user, user, brandSlug, edTotal, i,
+			brandSlug, meta.Name, meta.ManufacturedAt, meta.Serial, certJSON, meta.Image, ipfsHash, serialHash,
+			string(StateCreated), now, user, user, i, editionTotal,
 		)
 		if err != nil {
-			if strings.Contains(err.Error(), "UNIQUE") {
-				writeJSON(w, http.StatusConflict, ErrorResp{"product with this serial already exists"})
-				return
-			}
-			writeJSON(w, http.StatusInternalServerError, ErrorResp{fmt.Sprintf("db insert error: %v", err)})
+			writeJSON(w, 500, ErrorResp{fmt.Sprintf("db insert error: %v", err)})
 			return
 		}
 		id, _ := res.LastInsertId()
-
 		publicURL := ""
 		if publicBase != "" {
 			publicURL = fmt.Sprintf("%s/details.html?id=%d", publicBase, id)
 		}
-		_, _ = db.Exec(`UPDATE products SET public_url=? WHERE id=?`, publicURL, id)
-
-		_, _ = db.Exec(`INSERT INTO ownership_history (product_id, owner, acquired_at) VALUES (?, ?, ?)`,
+		_, _ = tx.Exec(`UPDATE products SET public_url=? WHERE id=?`, publicURL, id)
+		_, _ = tx.Exec(`INSERT INTO ownership_history (product_id, owner, acquired_at) VALUES (?, ?, ?)`,
 			id, user, now)
 
-		payload := map[string]any{
-			"t":   "prod",
-			"std": "1155",
-			"id":  id,
-			"s":   serialHash,
-			"iss": "MARKI_SECURE",
-			"v":   1,
-		}
+		payload := map[string]any{"t": "prod", "std": "1155", "id": id, "s": serialHash, "iss": "MARKI_SECURE", "v": 1}
 		if publicURL != "" {
 			payload["url"] = publicURL
 		}
 		payload["sig"] = mockSign(payload)
 
-		created = append(created, Product{
+		out := createdOut{Product{
 			ID:           id,
+			BrandSlug:    brandSlug,
 			Meta:         meta,
 			IPFSHash:     ipfsHash,
 			SerialHash:   serialHash,
@@ -789,68 +837,100 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			PublicURL:    publicURL,
 			Owner:        user,
 			Seller:       user,
-			Brand:        brandSlug,
-			EditionTotal: edTotal,
 			EditionNo:    i,
+			EditionTotal: editionTotal,
+		}}
+		outs = append(outs, out)
+	}
+
+	if err := tx.Commit(); err != nil {
+		writeJSON(w, 500, ErrorResp{err.Error()})
+		return
+	}
+
+	// mirror FS (в тіні)
+	for _, o := range outs {
+		fsWrite(fmt.Sprintf("products/%d", o.ID), map[string]any{
+			"name":           o.Meta.Name,
+			"brandSlug":      o.BrandSlug,
+			"tokenId":        o.ID,
+			"manufacturedAt": o.Meta.ManufacturedAt,
+			"ownerEmail":     o.Owner,
+			"state":          string(o.State),
+			"editionNo":      o.EditionNo,
+			"editionTotal":   o.EditionTotal,
+			"imageUrl":       o.Meta.Image,
+			"createdAt":      time.Now(),
+		})
+		fsAdd("events", map[string]any{
+			"type": "create_product", "byEmail": user, "tokenId": o.ID, "brandSlug": o.BrandSlug, "at": time.Now(),
 		})
 	}
 
-	if len(created) == 1 {
-		writeJSON(w, http.StatusCreated, created[0])
+	// якщо один — повернемо як об'єкт; якщо партія — масив
+	if len(outs) == 1 {
+		writeJSON(w, 201, outs[0].Product)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"ok":      true,
-		"created": created,
-	})
+	// масив
+	type simple struct {
+		ID           int64     `json:"id"`
+		SerialHash   string    `json:"serialHash"`
+		PublicURL    string    `json:"publicUrl"`
+		EditionNo    int       `json:"editionNo"`
+		EditionTotal int       `json:"editionTotal"`
+		Meta         *Metadata `json:"meta,omitempty"`
+	}
+	arr := make([]simple, 0, len(outs))
+	for _, o := range outs {
+		m := o.Meta // small copy pointer
+		arr = append(arr, simple{
+			ID: o.ID, SerialHash: o.SerialHash, PublicURL: o.PublicURL,
+			EditionNo: o.EditionNo, EditionTotal: o.EditionTotal,
+			Meta: &m,
+		})
+	}
+	writeJSON(w, 201, arr)
 }
 
-// GET /api/products  (?owner=...)  / ?all=1 for admins
+// /api/products (GET) — мої (owner/seller); ?all=1 тільки адмін
 func productsList(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		returnOK(w)
 		return
 	}
 	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, ErrorResp{"Method not allowed"})
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
 		return
 	}
 
 	user := currentUser(r)
 	if user == "" {
-		writeJSON(w, http.StatusUnauthorized, ErrorResp{"missing user"})
+		writeJSON(w, 401, ErrorResp{"missing user"})
 		return
 	}
 
-	wantAll := r.URL.Query().Get("all") == "1"
-	ownerQ := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("owner")))
+	wantAll := r.URL.Query().Get("all") == "1" && isAdmin(user)
 
 	var (
 		rows *sql.Rows
 		err  error
 	)
-
 	baseSelect := `
-SELECT
-  id, name, manufactured_at, serial, certificates, image,
-  ipfs_hash, serial_hash, state, created_at,
-  owner, seller, public_url,
-  brand_slug, edition_total, edition_no
+SELECT id, brand_slug, name, manufactured_at, serial, certificates, image,
+  ipfs_hash, serial_hash, state, created_at, owner, seller, public_url,
+  edition_no, edition_total
 FROM products
 `
-	if wantAll && isAdmin(user) {
+	if wantAll {
 		rows, err = db.Query(baseSelect + ` ORDER BY id DESC`)
-	} else if ownerQ != "" && (ownerQ == user || isAdmin(user)) {
-		rows, err = db.Query(baseSelect+`
-WHERE owner = ?
-ORDER BY id DESC`, ownerQ)
 	} else {
 		rows, err = db.Query(baseSelect+`
 WHERE owner = ? OR seller = ?
 ORDER BY id DESC`, user, user)
 	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
+		writeJSON(w, 500, ErrorResp{err.Error()})
 		return
 	}
 	defer rows.Close()
@@ -858,37 +938,26 @@ ORDER BY id DESC`, user, user)
 	var list []Product
 	for rows.Next() {
 		var (
-			id                                                            int64
-			name, mfgAt, serial, certJSON, image, ipfs, serialHash, state string
-			created                                                       int64
-			owner, seller, publicURL                                      string
-			brandSlug                                                     sql.NullString
-			edTotal, edNo                                                 int
+			id                                                                       int64
+			brandSlug, name, mfgAt, serial, certJSON, image, ipfs, serialHash, state string
+			created                                                                  int64
+			owner, seller, publicURL                                                 string
+			editionNo, editionTotal                                                  int
 		)
 		if err := rows.Scan(
-			&id, &name, &mfgAt, &serial, &certJSON, &image,
-			&ipfs, &serialHash, &state, &created,
-			&owner, &seller, &publicURL,
-			&brandSlug, &edTotal, &edNo,
+			&id, &brandSlug, &name, &mfgAt, &serial, &certJSON, &image,
+			&ipfs, &serialHash, &state, &created, &owner, &seller, &publicURL,
+			&editionNo, &editionTotal,
 		); err != nil {
-			writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
+			writeJSON(w, 500, ErrorResp{err.Error()})
 			return
 		}
-
 		var certs []string
 		_ = json.Unmarshal([]byte(ifEmpty(certJSON, "[]")), &certs)
-
-		meta := Metadata{
-			Name:           name,
-			ManufacturedAt: mfgAt,
-			Serial:         serial,
-			Certificates:   certs,
-			Image:          image,
-			Version:        1,
-		}
-
+		meta := Metadata{Name: name, ManufacturedAt: mfgAt, Serial: serial, Certificates: certs, Image: image, Version: 1}
 		list = append(list, Product{
 			ID:           id,
+			BrandSlug:    brandSlug,
 			Meta:         meta,
 			IPFSHash:     ipfs,
 			SerialHash:   serialHash,
@@ -897,17 +966,16 @@ ORDER BY id DESC`, user, user)
 			Owner:        owner,
 			Seller:       seller,
 			PublicURL:    publicURL,
-			Brand:        brandSlug.String,
-			EditionTotal: edTotal,
-			EditionNo:    edNo,
+			EditionNo:    editionNo,
+			EditionTotal: editionTotal,
 		})
 	}
-
 	if err := rows.Err(); err != nil {
-		writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
+		writeJSON(w, 500, ErrorResp{err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+
+	writeJSON(w, 200, list)
 }
 
 // /api/products/{id}/purchase  (POST)
@@ -918,151 +986,155 @@ func productActions(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/products/"), "/")
 	if len(parts) == 0 || parts[0] == "" {
-		writeJSON(w, http.StatusNotFound, ErrorResp{"not found"})
+		writeJSON(w, 404, ErrorResp{"not found"})
 		return
 	}
 	id, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, ErrorResp{"bad id"})
+		writeJSON(w, 400, ErrorResp{"bad id"})
 		return
 	}
 
-	// purchase
 	if len(parts) == 2 && parts[1] == "purchase" && r.Method == http.MethodPost {
 		buyer := currentUser(r)
 		if buyer == "" {
-			writeJSON(w, http.StatusUnauthorized, ErrorResp{"missing user"})
+			writeJSON(w, 401, ErrorResp{"missing user"})
 			return
 		}
 
 		var curOwner, state string
 		err := db.QueryRow(`SELECT owner, state FROM products WHERE id=?`, id).Scan(&curOwner, &state)
 		if err == sql.ErrNoRows {
-			writeJSON(w, http.StatusNotFound, ErrorResp{"product not found"})
+			writeJSON(w, 404, ErrorResp{"product not found"})
 			return
 		}
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
+			writeJSON(w, 500, ErrorResp{err.Error()})
 			return
 		}
 		if buyer == curOwner {
-			writeJSON(w, http.StatusConflict, ErrorResp{"already owned by you"})
+			writeJSON(w, 409, ErrorResp{"already owned by you"})
 			return
 		}
 
 		tx, err := db.Begin()
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
+			writeJSON(w, 500, ErrorResp{err.Error()})
 			return
 		}
 		defer func() { _ = tx.Rollback() }()
 
 		now := time.Now().UnixMilli()
 		_, _ = tx.Exec(`UPDATE ownership_history SET released_at=? WHERE product_id=? AND released_at IS NULL`, now, id)
-
 		_, err = tx.Exec(`UPDATE products SET state=?, owner=? WHERE id=?`, string(StatePurchased), buyer, id)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
+			writeJSON(w, 500, ErrorResp{err.Error()})
 			return
 		}
 		_, _ = tx.Exec(`INSERT INTO ownership_history (product_id, owner, acquired_at) VALUES (?, ?, ?)`, id, buyer, now)
 
 		if err := tx.Commit(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
+			writeJSON(w, 500, ErrorResp{err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "state": StatePurchased})
+		// mirror
+		fsWrite(fmt.Sprintf("products/%d", id), map[string]any{
+			"ownerEmail": buyer, "state": string(StatePurchased),
+		})
+		fsAdd("events", map[string]any{
+			"type": "purchase", "byEmail": buyer, "tokenId": id, "at": time.Now(),
+		})
+		writeJSON(w, 200, map[string]any{"ok": true, "state": StatePurchased})
 		return
 	}
 
-	writeJSON(w, http.StatusNotFound, ErrorResp{"not found"})
+	writeJSON(w, 404, ErrorResp{"not found"})
 }
 
-// GET /api/verify/{id} — public/limited view
+// /api/verify/{id}  (GET) — публічний перегляд
 func verifyProduct(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		returnOK(w)
 		return
 	}
 	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, ErrorResp{"Method not allowed"})
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
 		return
 	}
-
 	requester := currentUser(r)
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/verify/")
 	tokenID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, ErrorResp{"bad id"})
+		writeJSON(w, 400, ErrorResp{"bad id"})
 		return
 	}
 
 	var (
-		name, mfgAt, serial, certJSON, image, ipfs, serialHash, state string
-		created                                                       int64
-		owner, seller, publicURL                                      string
-		brandSlug                                                     sql.NullString
-		edTotal, edNo                                                 int
+		brandSlug, name, mfgAt, serial, certJSON, image, ipfs, serialHash, state string
+		created                                                                  int64
+		owner, seller, publicURL                                                 string
+		editionNo, editionTotal                                                  int
 	)
-	err = db.QueryRow(`SELECT name, manufactured_at, serial, certificates, image, ipfs_hash, serial_hash, state, created_at, owner, seller, public_url, brand_slug, edition_total, edition_no
+	err = db.QueryRow(`SELECT brand_slug,name,manufactured_at,serial,certificates,image,ipfs_hash,serial_hash,state,created_at,owner,seller,public_url,edition_no,edition_total
 		FROM products WHERE id=?`, tokenID).
-		Scan(&name, &mfgAt, &serial, &certJSON, &image, &ipfs, &serialHash, &state, &created, &owner, &seller, &publicURL, &brandSlug, &edTotal, &edNo)
+		Scan(&brandSlug, &name, &mfgAt, &serial, &certJSON, &image, &ipfs, &serialHash, &state, &created, &owner, &seller, &publicURL, &editionNo, &editionTotal)
 	if err == sql.ErrNoRows {
-		writeJSON(w, http.StatusNotFound, ErrorResp{"product not found"})
+		writeJSON(w, 404, ErrorResp{"product not found"})
 		return
 	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, ErrorResp{err.Error()})
+		writeJSON(w, 500, ErrorResp{err.Error()})
 		return
 	}
 
+	// brand verified?
+	var verifiedInt int
+	_ = db.QueryRow(`SELECT verified FROM manufacturers WHERE slug=?`, brandSlug).Scan(&verifiedInt)
+	brandVerified := verifiedInt == 1
+
 	var certs []string
 	_ = json.Unmarshal([]byte(ifEmpty(certJSON, "[]")), &certs)
+	if brandVerified && state != string(StateRevoked) {
+		certs = append(certs, "brand_verified")
+	}
+	if state == string(StateRevoked) {
+		certs = append(certs, "revoked")
+	}
+
 	meta := Metadata{
 		Name:           name,
 		ManufacturedAt: mfgAt,
-		Serial:         serial,
+		Serial:         serial, // may hide below
 		Certificates:   certs,
 		Image:          image,
 		Version:        1,
 	}
 
-	if requester != "" && (requester == owner || requester == seller) {
-		resp := map[string]any{
-			"state":        state,
-			"tokenId":      tokenID,
-			"metadata":     meta,
-			"ipfsHash":     ipfs,
-			"serialHash":   serialHash,
-			"owner":        owner,
-			"seller":       seller,
-			"publicUrl":    publicURL,
-			"brand":        brandSlug.String,
-			"editionTotal": edTotal,
-			"editionNo":    edNo,
-			"scope":        "full",
-		}
-		writeJSON(w, http.StatusOK, resp)
-		return
-	}
-
-	publicMeta := Metadata{
-		Name:           meta.Name,
-		ManufacturedAt: meta.ManufacturedAt,
-		Serial:         "",
-		Certificates:   meta.Certificates,
-		Image:          meta.Image,
-		Version:        meta.Version,
-	}
+	// повний доступ — тільки власник або продавець (або адмін)
+	full := requester != "" && (strings.EqualFold(requester, owner) || strings.EqualFold(requester, seller) || isAdmin(requester))
+	scope := "public"
 	resp := map[string]any{
 		"state":        state,
 		"tokenId":      tokenID,
-		"metadata":     publicMeta,
+		"brandSlug":    brandSlug,
+		"metadata":     meta,
 		"publicUrl":    publicURL,
-		"brand":        brandSlug.String,
-		"editionTotal": edTotal,
-		"editionNo":    edNo,
-		"scope":        "public",
+		"editionNo":    editionNo,
+		"editionTotal": editionTotal,
+		"scope":        scope,
 	}
-	writeJSON(w, http.StatusOK, resp)
+	if full {
+		scope = "full"
+		resp["scope"] = scope
+		resp["ipfsHash"] = ipfs
+		resp["serialHash"] = serialHash
+		resp["owner"] = owner
+		resp["seller"] = seller
+	} else {
+		// приховати чутливе
+		pm := meta
+		pm.Serial = ""
+		resp["metadata"] = pm
+	}
+	writeJSON(w, 200, resp)
 }
