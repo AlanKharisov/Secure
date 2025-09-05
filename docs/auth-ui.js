@@ -83,22 +83,32 @@
   }
 
   // --- бренди користувача (бек → фолбек config.js) ---
-  function fetchMyBrands(email) {
-    if (!email) return Promise.resolve([]);
-    var url = API + "/api/manufacturers?owner=" + encodeURIComponent(email);
-    return fetchJSON(url, { headers: { "X-User": email } })
-      .then(function (j) {
-        if (Array.isArray(j)) return j;
-        return [];
-      })
-      .catch(function () {
-        if (EMAIL_BRANDS[email]) return EMAIL_BRANDS[email];
-        if (CLIENT_MANUFACTURERS.has(email)) {
-          return [{ name: "Your Brand", slug: "YOUR-BRAND", verified: false }];
-        }
-        return [];
-      });
+ function fetchMyBrands(email) {
+  if (!email) return Promise.resolve([]);
+
+  const fallback = () => {
+    if (window.EMAIL_BRANDS && window.EMAIL_BRANDS[email]) {
+      return window.EMAIL_BRANDS[email];
+    }
+    if (window.CLIENT_MANUFACTURERS && window.CLIENT_MANUFACTURERS.has(email)) {
+      return [{ name: "Your Brand", slug: "YOUR-BRAND", verified: false }];
+    }
+    return [];
+  };
+
+  // Можна примусово брати тільки з config.js (див. пункт 2 нижче)
+  if (window.FORCE_BRANDS_FROM_CONFIG) {
+    return Promise.resolve(fallback());
   }
+
+  const url = (window.API_BASE || window.location.origin) +
+              "/api/manufacturers?owner=" + encodeURIComponent(email);
+
+  return fetch(url, { headers: { "X-User": email } })
+    .then(res => res.ok ? res.json() : null)
+    .then(data => (Array.isArray(data) && data.length) ? data : fallback())
+    .catch(() => fallback());
+}
 
   function renderBrandChips(list) {
     function renderInto(container) {
