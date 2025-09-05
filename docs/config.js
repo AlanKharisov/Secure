@@ -11,13 +11,8 @@ window.CLIENT_ADMINS = new Set([
 // ⚠️ Головне: карта email -> перелік брендів (фолбек, поки немає GET /api/manufacturers?owner=...)
 // Вкажи САМІ ТОЧНІ слуги (slug), якими ти вже створив бренди на бекенді.
 window.EMAIL_BRANDS = {
-  "alankharisov1@gmail.com": [
-    { slug: "ALAN-KHARISOV", name: "Alan Kharisov", verified: true }
-  ],
-  // приклад для друга:
-  "torosyanemil2310@gmail.com": [
-    { slug: "EMIL", name: "Emil", verified: true }
-  ]
+  "alankharisov1@gmail.com": [{ slug: "ALAN-KHARISOV", name: "Alan Kharisov", verified: true }],
+  "torosyanemil2310@gmail.com": [{ slug: "EMIL-COLA", name: "Emil Cola", verified: true }]
 };
 
 // Якщо хочеш позначити, що певні e-mail теж виробники (без конкретного бренду) —
