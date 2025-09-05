@@ -19,7 +19,7 @@
   // додай/зміни емейли за потреби
   window.CLIENT_ADMINS = new Set([
     "alankharisov1@gmail.com",
-    // "torosyanemil2310@gmail.com",
+    "torosyanemil2310@gmail.com",
   ]);
 
   // --- Прив’язка email -> бренди (fallback)
