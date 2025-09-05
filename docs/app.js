@@ -1,286 +1,297 @@
-/* App JS */
 "use strict";
 
-const API = window.API_BASE || window.location.origin;
+var API = window.API_BASE || window.location.origin;
 
-const $ = (s, sc=document) => sc.querySelector(s);
-function authUser() { return (window.Auth && window.Auth.user) ? (window.Auth.user.email || window.Auth.user.uid) : ""; }
-function authHeaders() { const u = authUser(); return u ? { "X-User": u } : {}; }
-function esc(s){ return (s ?? "").toString().replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&gt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function $(s, sc){ return (sc || document).querySelector(s); }
+function authUser(){ return (window.Auth && window.Auth.user) ? (window.Auth.user.email || window.Auth.user.uid) : ""; }
+function authHeaders(){ var u = authUser(); return u ? { "X-User": u } : {}; }
+function esc(s){ return (s == null ? "" : String(s)).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); }); }
 
 function addQuery(url, params) {
-  const u = new URL(url, window.location.origin);
-  Object.entries(params || {}).forEach(([k,v])=>{
-    if (v!==undefined && v!==null) u.searchParams.set(k, String(v));
+  var u = new URL(url, window.location.origin);
+  Object.keys(params || {}).forEach(function(k){
+    var v = params[k];
+    if (v !== undefined && v !== null) u.searchParams.set(k, String(v));
   });
   return u.toString();
 }
 
-/* Tabs (кнопки мають мати id: adminTab, manufTab, userTab; панелі: #admin, #manufacturer, #user) */
-document.querySelectorAll(".tab").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
-    document.querySelectorAll(".tabpane").forEach(p => p.classList.remove("active"));
+/* Tabs */
+var tabButtons = document.querySelectorAll(".tab");
+tabButtons.forEach(function(btn){
+  btn.addEventListener("click", function(){
+    document.querySelectorAll(".tab").forEach(function(b){ b.classList.remove("active"); });
+    document.querySelectorAll(".tabpane").forEach(function(p){ p.classList.remove("active"); });
     btn.classList.add("active");
-    const pane = $("#" + btn.dataset.tab);
+    var pane = $("#" + btn.dataset.tab);
     if (pane) pane.classList.add("active");
 
-    const tab = btn.dataset.tab;
+    var tab = btn.dataset.tab;
     if (tab === "manufacturer") loadManufacturerProducts();
     if (tab === "admin") loadAllProducts();
     if (tab === "user") renderMyOwnedFromCache();
   });
 });
 
-/* Ролі, що приходять з auth-ui.js */
-let CURRENT_ROLES = { email:"", isAdmin:false, isManufacturer:false, brands:[] };
-document.addEventListener("roles-ready", (e) => {
+/* Roles */
+var CURRENT_ROLES = { email:"", isAdmin:false, isManufacturer:false, brands:[] };
+document.addEventListener("roles-ready", function(e){
   CURRENT_ROLES = e.detail || CURRENT_ROLES;
   if (CURRENT_ROLES.isManufacturer) loadManufacturerProducts();
   renderMyOwnedFromCache();
   if (CURRENT_ROLES.isAdmin) loadAllProducts();
 });
 
-/* QR (блок “Створено”) */
-let publicQR = null;
+/* QR */
+var publicQR = null;
 function getPublicQR() {
-  const node = document.getElementById("publicQR");
+  var node = document.getElementById("publicQR");
   if (!node) return null;
   if (!publicQR) publicQR = new QRCode(node, { text: "", width: 180, height: 180 });
   return publicQR;
 }
 
-/* Manufacturer: create form */
-const createForm = $("#createForm");
-const createdBlock = $("#createdBlock");
-let lastCreatedUrl = "";
+/* Create form */
+var createForm = $("#createForm");
+var createdBlock = $("#createdBlock");
+var lastCreatedUrl = "";
 
-createForm?.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const fd = new FormData(createForm);
-  const name = (fd.get("name") || "").toString().trim();
-  const mfg  = (fd.get("mfg") || "").toString().trim();
-  const image= (fd.get("image") || "").toString().trim();
-  const edStr= (fd.get("edition") || "1").toString().trim();
-  const edition = Math.max(1, parseInt(edStr, 10) || 1);
+if (createForm) {
+  createForm.addEventListener("submit", function(e){
+    e.preventDefault();
 
-  if (!authUser()) { alert("Увійдіть"); return; }
-  if (!CURRENT_ROLES.isManufacturer) { alert("Ви не виробник"); return; }
-  if (!name) { alert("Назва обовʼязкова"); return; }
+    var fd = new FormData(createForm);
+    var name = (fd.get("name") || "").toString().trim();
+    var mfg  = (fd.get("mfg") || "").toString().trim();
+    var image= (fd.get("image") || "").toString().trim();
+    var edStr= (fd.get("edition") || "1").toString().trim();
+    var edition = Math.max(1, parseInt(edStr, 10) || 1);
 
-  const primaryBrand = (CURRENT_ROLES.brands && CURRENT_ROLES.brands[0]) ? CURRENT_ROLES.brands[0].slug : "";
-  if (!primaryBrand) {
-    alert("У вас немає бренду. Зверніться до адміна або створіть бренд.");
-    return;
-  }
+    if (!authUser()) { alert("Увійдіть"); return; }
+    if (!CURRENT_ROLES.isManufacturer) { alert("Ви не виробник"); return; }
+    if (!name) { alert("Назва обовʼязкова"); return; }
 
-  try {
-    const body = { name, brand: primaryBrand };
+    var primaryBrand = (CURRENT_ROLES.brands && CURRENT_ROLES.brands[0]) ? CURRENT_ROLES.brands[0].slug : "";
+    if (!primaryBrand) { alert("У вас немає бренду. Зверніться до адміна або створіть бренд."); return; }
+
+    var body = { name: name, brand: primaryBrand };
     if (mfg) body.manufacturedAt = mfg;
     if (image) body.image = image;
     if (edition && edition > 1) body.edition = edition;
 
-    const res = await fetch(`${API}/api/manufacturer/products`, {
+    fetch(API + "/api/manufacturer/products", {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify(body),
-    });
-    const p = await res.json();
-    if (!res.ok) throw new Error(p.error || "Create failed");
+      headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+      body: JSON.stringify(body)
+    }).then(function(res){ return res.json().then(function(j){ return { ok: res.ok, data: j }; }); })
+      .then(function(r){
+        if (!r.ok) throw new Error(r.data && r.data.error || "Create failed");
 
-    const baseUrl = p.publicUrl || `${API}/details.html?id=${p.id}`;
-    const url = addQuery(baseUrl, { s: p.serialHash || "" });
-    lastCreatedUrl = url;
+        var p = r.data;
+        var baseUrl = p.publicUrl || (API + "/details.html?id=" + p.id);
+        var url = addQuery(baseUrl, { s: p.serialHash || "" });
+        lastCreatedUrl = url;
 
-    createdBlock?.classList.remove("hidden");
-    $("#createdId")?.textContent = p.id;
-    $("#createdState")?.textContent = p.state;
-    $("#createdUrl")?.textContent = url;
+        if (createdBlock) createdBlock.classList.remove("hidden");
+        var el1 = $("#createdId");     if (el1) el1.textContent = p.id;
+        var el2 = $("#createdState");  if (el2) el2.textContent = p.state;
+        var el3 = $("#createdUrl");    if (el3) el3.textContent = url;
 
-    const qr = getPublicQR();
-    if (qr) { qr.clear(); qr.makeCode(url); }
+        var qr = getPublicQR();
+        if (qr) { qr.clear(); qr.makeCode(url); }
 
-    await loadManufacturerProducts();
-    renderMyOwnedFromCache();
-    createForm.reset();
-  } catch (err) {
-    alert(err.message);
-  }
-});
-
-// Download QR
-$("#downloadQR")?.addEventListener("click", () => {
-  const node = document.querySelector("#publicQR canvas") || document.querySelector("#publicQR img");
-  if (!node) { alert("QR ще не згенерований"); return; }
-  let dataURL = "";
-  if (node.tagName.toLowerCase() === "canvas") dataURL = node.toDataURL("image/png");
-  else dataURL = node.src || "";
-  if (!dataURL) { alert("Не вдалося отримати QR"); return; }
-
-  const a = document.createElement("a");
-  a.href = dataURL;
-  a.download = "qr.png";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-});
-
-// Copy URL
-$("#copyUrl")?.addEventListener("click", async () => {
-  if (!lastCreatedUrl) return;
-  try {
-    await navigator.clipboard.writeText(lastCreatedUrl);
-    alert("Посилання скопійовано");
-  } catch {
-    alert("Не вдалося скопіювати");
-  }
-});
-
-/* Таблиці */
-const manufBody = $("#productsBody");
-const allBody   = $("#allBody");
-const myBody    = $("#myBody");
-
-let _lastProducts = [];
-
-async function loadManufacturerProducts() {
-  if (!manufBody) return;
-  if (!authUser()) {
-    manufBody.innerHTML = `<tr><td colspan="6" class="muted">Увійдіть</td></tr>`;
-    return;
-  }
-  manufBody.innerHTML = `<tr><td colspan="6" class="muted">Завантаження…</td></tr>`;
-  try {
-    const res = await fetch(`${API}/api/products`, { headers: { ...authHeaders() } });
-    const list = await res.json();
-    _lastProducts = Array.isArray(list) ? list : [];
-
-    if (!_lastProducts.length) {
-      manufBody.innerHTML = `<tr><td colspan="6" class="muted">Ще немає продуктів</td></tr>`;
-      renderMyOwnedFromCache();
-      return;
-    }
-
-    manufBody.innerHTML = "";
-    _lastProducts.forEach(p => {
-      const detailsUrl = addQuery(`details.html?id=${encodeURIComponent(p.id)}`, { s: p.serialHash || "" });
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${p.id}</td>
-        <td>${esc(p.meta?.name || "")}</td>
-        <td class="mono">${esc(p.meta?.serial || "")}</td>
-        <td class="mono">${esc(p.meta?.edition || "1")}</td>
-        <td><span class="badge">${esc(p.state)}</span></td>
-        <td>
-          <a class="btn" href="${detailsUrl}" target="_blank" rel="noopener">Деталі</a>
-          ${p.state === "created" ? `<button class="btn" data-buy="${p.id}">Позначити купленим (передати мені)</button>` : ``}
-        </td>
-      `;
-      manufBody.appendChild(tr);
-    });
-
-    manufBody.querySelectorAll("[data-buy]").forEach(btn => {
-      btn.addEventListener("click", () => markPurchased(btn.getAttribute("data-buy")));
-    });
-
-    renderMyOwnedFromCache();
-  } catch (e) {
-    console.error("loadManufacturerProducts:", e);
-    manufBody.innerHTML = `<tr><td colspan="6" class="muted">Помилка завантаження</td></tr>`;
-  }
+        loadManufacturerProducts();
+        renderMyOwnedFromCache();
+        createForm.reset();
+      })
+      .catch(function(err){ alert(err.message); });
+  });
 }
 
-async function loadAllProducts() {
-  if (!allBody) return;
+/* Download QR */
+var dlBtn = $("#downloadQR");
+if (dlBtn) {
+  dlBtn.addEventListener("click", function(){
+    var node = document.querySelector("#publicQR canvas") || document.querySelector("#publicQR img");
+    if (!node) { alert("QR ще не згенерований"); return; }
+    var dataURL = "";
+    if (node.tagName.toLowerCase() === "canvas") dataURL = node.toDataURL("image/png");
+    else dataURL = node.src || "";
+    if (!dataURL) { alert("Не вдалося отримати QR"); return; }
+
+    var a = document.createElement("a");
+    a.href = dataURL;
+    a.download = "qr.png";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+}
+
+/* Copy URL */
+var copyBtn = $("#copyUrl");
+if (copyBtn) {
+  copyBtn.addEventListener("click", function(){
+    if (!lastCreatedUrl) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(lastCreatedUrl).then(function(){
+        alert("Посилання скопійовано");
+      }, function(){
+        alert("Не вдалося скопіювати");
+      });
+    } else {
+      alert("Clipboard API недоступний");
+    }
+  });
+}
+
+/* Tables */
+var manufBody = $("#productsBody");
+var allBody   = $("#allBody");
+var myBody    = $("#myBody");
+
+var _lastProducts = [];
+
+function loadManufacturerProducts() {
+  if (!manufBody) return;
   if (!authUser()) {
-    allBody.innerHTML = `<tr><td colspan="7" class="muted">Увійдіть</td></tr>`;
+    manufBody.innerHTML = '<tr><td colspan="6" class="muted">Увійдіть</td></tr>';
     return;
   }
-  allBody.innerHTML = `<tr><td colspan="7" class="muted">Завантаження…</td></tr>`;
-  try {
-    const res = await fetch(`${API}/api/products?all=1`, { headers: { ...authHeaders() } });
-    const list = await res.json();
-    if (!Array.isArray(list) || !list.length) {
-      allBody.innerHTML = `<tr><td colspan="7" class="muted">Нічого не знайдено</td></tr>`;
-      return;
-    }
-    allBody.innerHTML = "";
-    list.forEach(p => {
-      const detailsUrl = addQuery(`details.html?id=${encodeURIComponent(p.id)}`, { s: p.serialHash || "" });
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${p.id}</td>
-        <td>${esc(p.meta?.name || "")}</td>
-        <td class="mono">${esc(p.meta?.serial || "")}</td>
-        <td class="mono">${esc(p.meta?.edition || "1")}</td>
-        <td>${esc(p.meta?.brand || p.brand || "")}</td>
-        <td><span class="badge">${esc(p.state)}</span></td>
-        <td><a class="btn" href="${detailsUrl}" target="_blank" rel="noopener">Деталі</a></td>
-      `;
-      allBody.appendChild(tr);
+  manufBody.innerHTML = '<tr><td colspan="6" class="muted">Завантаження…</td></tr>';
+
+  fetch(API + "/api/products", { headers: authHeaders() })
+    .then(function(res){ return res.json(); })
+    .then(function(list){
+      _lastProducts = Array.isArray(list) ? list : [];
+
+      if (!_lastProducts.length) {
+        manufBody.innerHTML = '<tr><td colspan="6" class="muted">Ще немає продуктів</td></tr>';
+        renderMyOwnedFromCache();
+        return;
+      }
+      manufBody.innerHTML = "";
+      _lastProducts.forEach(function(p){
+        var detailsUrl = addQuery("details.html?id=" + encodeURIComponent(p.id), { s: p.serialHash || "" });
+        var tr = document.createElement("tr");
+        tr.innerHTML =
+          '<td>' + p.id + '</td>' +
+          '<td>' + esc(p.meta && p.meta.name || "") + '</td>' +
+          '<td class="mono">' + esc(p.meta && p.meta.serial || "") + '</td>' +
+          '<td class="mono">' + esc(p.meta && (p.meta.edition || "1")) + '</td>' +
+          '<td><span class="badge">' + esc(p.state) + '</span></td>' +
+          '<td>' +
+            '<a class="btn" href="' + detailsUrl + '" target="_blank" rel="noopener">Деталі</a> ' +
+            (p.state === "created" ? '<button class="btn" data-buy="' + p.id + '">Позначити купленим (передати мені)</button>' : '') +
+          '</td>';
+        manufBody.appendChild(tr);
+      });
+
+      var buys = manufBody.querySelectorAll("[data-buy]");
+      buys.forEach(function(btn){
+        btn.addEventListener("click", function(){
+          var id = btn.getAttribute("data-buy");
+          markPurchased(id);
+        });
+      });
+
+      renderMyOwnedFromCache();
+    })
+    .catch(function(e){
+      console.error("loadManufacturerProducts:", e);
+      manufBody.innerHTML = '<tr><td colspan="6" class="muted">Помилка завантаження</td></tr>';
     });
-  } catch (e) {
-    console.error("loadAllProducts:", e);
-    allBody.innerHTML = `<tr><td colspan="7" class="muted">Помилка завантаження</td></tr>`;
+}
+
+function loadAllProducts() {
+  if (!allBody) return;
+  if (!authUser()) {
+    allBody.innerHTML = '<tr><td colspan="7" class="muted">Увійдіть</td></tr>';
+    return;
   }
+  allBody.innerHTML = '<tr><td colspan="7" class="muted">Завантаження…</td></tr>';
+
+  fetch(API + "/api/products?all=1", { headers: authHeaders() })
+    .then(function(res){ return res.json(); })
+    .then(function(list){
+      if (!Array.isArray(list) || !list.length) {
+        allBody.innerHTML = '<tr><td colspan="7" class="muted">Нічого не знайдено</td></tr>';
+        return;
+      }
+      allBody.innerHTML = "";
+      list.forEach(function(p){
+        var detailsUrl = addQuery("details.html?id=" + encodeURIComponent(p.id), { s: p.serialHash || "" });
+        var brand = (p.meta && (p.meta.brand || p.brand)) || "";
+        var tr = document.createElement("tr");
+        tr.innerHTML =
+          '<td>' + p.id + '</td>' +
+          '<td>' + esc(p.meta && p.meta.name || "") + '</td>' +
+          '<td class="mono">' + esc(p.meta && p.meta.serial || "") + '</td>' +
+          '<td class="mono">' + esc(p.meta && (p.meta.edition || "1")) + '</td>' +
+          '<td>' + esc(brand) + '</td>' +
+          '<td><span class="badge">' + esc(p.state) + '</span></td>' +
+          '<td><a class="btn" href="' + detailsUrl + '" target="_blank" rel="noopener">Деталі</a></td>';
+        allBody.appendChild(tr);
+      });
+    })
+    .catch(function(e){
+      console.error("loadAllProducts:", e);
+      allBody.innerHTML = '<tr><td colspan="7" class="muted">Помилка завантаження</td></tr>';
+    });
 }
 
 function renderMyOwnedFromCache() {
   if (!myBody) return;
-  const me = authUser();
+  var me = authUser();
   if (!me) {
-    myBody.innerHTML = `<tr><td colspan="6" class="muted">Увійдіть, щоб побачити свої товари</td></tr>`;
+    myBody.innerHTML = '<tr><td colspan="6" class="muted">Увійдіть, щоб побачити свої товари</td></tr>';
     return;
   }
-  const mine = _lastProducts.filter(p => (p.owner || "").toLowerCase() === me.toLowerCase());
+  var mine = _lastProducts.filter(function(p){ return (p.owner || "").toLowerCase() === me.toLowerCase(); });
   myBody.innerHTML = "";
   if (!mine.length) {
-    myBody.innerHTML = `<tr><td colspan="6" class="muted">Ще немає товарів</td></tr>`;
+    myBody.innerHTML = '<tr><td colspan="6" class="muted">Ще немає товарів</td></tr>';
   } else {
-    let pCnt=0, cCnt=0, clCnt=0;
-    mine.forEach(pdt => {
+    var pCnt=0, cCnt=0, clCnt=0;
+    mine.forEach(function(pdt){
       if (pdt.state === "purchased") pCnt++;
       else if (pdt.state === "created") cCnt++;
       else if (pdt.state === "claimed") clCnt++;
-      const img = (pdt.meta?.image || "").trim() ? `<img class="thumb" src="${esc(pdt.meta.image)}" alt="">` : "";
-      const detailsUrl = addQuery(`details.html?id=${encodeURIComponent(pdt.id)}`, { s: pdt.serialHash || "" });
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${img}</td>
-        <td>${esc(pdt.meta?.name || "-")}</td>
-        <td class="mono">${esc(pdt.meta?.serial || "-")}</td>
-        <td class="mono">${pdt.id}</td>
-        <td><span class="badge">${esc(pdt.state)}</span></td>
-        <td><a class="btn" href="${detailsUrl}" target="_blank" rel="noopener">Відкрити</a></td>
-      `;
+      var img = (pdt.meta && pdt.meta.image || "").trim() ? '<img class="thumb" src="' + esc(pdt.meta.image) + '" alt="">' : "";
+      var detailsUrl = addQuery("details.html?id=" + encodeURIComponent(pdt.id), { s: pdt.serialHash || "" });
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        '<td>' + img + '</td>' +
+        '<td>' + esc(pdt.meta && pdt.meta.name || "-") + '</td>' +
+        '<td class="mono">' + esc(pdt.meta && pdt.meta.serial || "-") + '</td>' +
+        '<td class="mono">' + pdt.id + '</td>' +
+        '<td><span class="badge">' + esc(pdt.state) + '</span></td>' +
+        '<td><a class="btn" href="' + detailsUrl + '" target="_blank" rel="noopener">Відкрити</a></td>';
       myBody.appendChild(tr);
     });
-    const kp = (id,v) => { const el = document.getElementById(id); if (el) el.textContent = String(v); };
-    kp("kPurchased", pCnt);
-    kp("kCreated", cCnt);
-    kp("kClaimed", clCnt);
+    var kp1 = document.getElementById("kPurchased"); if (kp1) kp1.textContent = String(pCnt);
+    var kp2 = document.getElementById("kCreated");   if (kp2) kp2.textContent = String(cCnt);
+    var kp3 = document.getElementById("kClaimed");   if (kp3) kp3.textContent = String(clCnt);
   }
 }
 
-async function markPurchased(id) {
+function markPurchased(id) {
   if (!authUser()) { alert("Будь ласка, увійдіть у свій акаунт."); return; }
-  try {
-    const r = await fetch(`${API}/api/products/${id}/purchase`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: "{}"
-    });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || "Failed");
-    await loadManufacturerProducts();
-    renderMyOwnedFromCache();
-    alert("Власність передано вам");
-  } catch (e) {
-    alert(e.message);
-  }
+  fetch(API + "/api/products/" + id + "/purchase", {
+    method: "POST",
+    headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+    body: "{}"
+  }).then(function(res){ return res.json().then(function(j){ return { ok: res.ok, data: j }; }); })
+    .then(function(r){
+      if (!r.ok) throw new Error(r.data && r.data.error || "Failed");
+      loadManufacturerProducts();
+      renderMyOwnedFromCache();
+      alert("Власність передано вам");
+    })
+    .catch(function(e){ alert(e.message); });
 }
 
-// Якщо користувач вже залогінений до завантаження
+/* Якщо вже авторизований — стартові дані */
 if (window.Auth && window.Auth.user) {
   renderMyOwnedFromCache();
 }
