@@ -5,20 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
     <title>Кошик — MARKI Secure</title>
     <link rel="stylesheet" href="styles.css">
+    <style>
+        .cart-page{max-width:1000px;margin:24px auto;padding:0 16px}
+        .thumb{width:64px;height:64px;border-radius:10px;border:1px solid var(--border);object-fit:cover;background:#0c1330}
+        .total{display:flex;justify-content:flex-end;gap:12px;align-items:center;margin-top:12px}
+    </style>
+    <script defer src="config.js"></script>
     <script type="module" src="firebase.js"></script>
     <script defer src="auth-ui.js"></script>
     <script defer src="cart.js"></script>
-    <script defer src="config.js"></script>
 </head>
 <body>
-<div class="cart-page container">
+<div class="cart-page">
     <a href="index.html" class="btn">← Назад</a>
     <h1 style="margin:10px 0 6px">Кошик</h1>
 
+    <!-- AUTH mini -->
     <div class="authbox" style="justify-content:flex-end; margin:8px 0">
         <img id="authPhoto" class="avatar" alt="" style="display:none">
-        <span id="authEmail" class="muted"></span>
-        <span id="roleBadges" class="muted small" style="margin-left:6px"></span>
+        <span id="authEmail" class="muted email-compact"></span>
         <button id="loginBtn"  class="btn">Увійти</button>
         <button id="logoutBtn" class="btn ghost" style="display:none">Вийти</button>
         <a id="accountLink" href="account.html" class="btn ghost" style="display:none">Мій акаунт</a>
