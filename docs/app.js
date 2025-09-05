@@ -1,4 +1,6 @@
-/* App JS: вкладки, списки, створення */
+/* App JS */
+"use strict";
+
 const API = window.API_BASE || window.location.origin;
 
 const $ = (s, sc=document) => sc.querySelector(s);
@@ -14,7 +16,7 @@ function addQuery(url, params) {
   return u.toString();
 }
 
-/* Tabs */
+/* Tabs (кнопки мають мати id: adminTab, manufTab, userTab; панелі: #admin, #manufacturer, #user) */
 document.querySelectorAll(".tab").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
@@ -30,7 +32,7 @@ document.querySelectorAll(".tab").forEach(btn => {
   });
 });
 
-/* Roles from auth-ui */
+/* Ролі, що приходять з auth-ui.js */
 let CURRENT_ROLES = { email:"", isAdmin:false, isManufacturer:false, brands:[] };
 document.addEventListener("roles-ready", (e) => {
   CURRENT_ROLES = e.detail || CURRENT_ROLES;
@@ -39,7 +41,7 @@ document.addEventListener("roles-ready", (e) => {
   if (CURRENT_ROLES.isAdmin) loadAllProducts();
 });
 
-/* QR in “Створено” блоці */
+/* QR (блок “Створено”) */
 let publicQR = null;
 function getPublicQR() {
   const node = document.getElementById("publicQR");
@@ -48,24 +50,24 @@ function getPublicQR() {
   return publicQR;
 }
 
-/* Manufacturer: Create form */
+/* Manufacturer: create form */
 const createForm = $("#createForm");
 const createdBlock = $("#createdBlock");
 let lastCreatedUrl = "";
 
 createForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const name = (new FormData(createForm).get("name") || "").toString().trim();
-  const mfg  = (new FormData(createForm).get("mfg") || "").toString().trim();
-  const image= (new FormData(createForm).get("image") || "").toString().trim();
-  const edStr= (new FormData(createForm).get("edition") || "1").toString().trim();
+  const fd = new FormData(createForm);
+  const name = (fd.get("name") || "").toString().trim();
+  const mfg  = (fd.get("mfg") || "").toString().trim();
+  const image= (fd.get("image") || "").toString().trim();
+  const edStr= (fd.get("edition") || "1").toString().trim();
   const edition = Math.max(1, parseInt(edStr, 10) || 1);
 
   if (!authUser()) { alert("Увійдіть"); return; }
   if (!CURRENT_ROLES.isManufacturer) { alert("Ви не виробник"); return; }
   if (!name) { alert("Назва обовʼязкова"); return; }
 
-  // Візьмемо перший бренд користувача як primary
   const primaryBrand = (CURRENT_ROLES.brands && CURRENT_ROLES.brands[0]) ? CURRENT_ROLES.brands[0].slug : "";
   if (!primaryBrand) {
     alert("У вас немає бренду. Зверніться до адміна або створіть бренд.");
@@ -76,7 +78,7 @@ createForm?.addEventListener("submit", async (e) => {
     const body = { name, brand: primaryBrand };
     if (mfg) body.manufacturedAt = mfg;
     if (image) body.image = image;
-    if (edition && edition > 1) body.edition = edition; // ок, якщо бек ігнорує
+    if (edition && edition > 1) body.edition = edition;
 
     const res = await fetch(`${API}/api/manufacturer/products`, {
       method: "POST",
@@ -134,7 +136,7 @@ $("#copyUrl")?.addEventListener("click", async () => {
   }
 });
 
-/* Tables */
+/* Таблиці */
 const manufBody = $("#productsBody");
 const allBody   = $("#allBody");
 const myBody    = $("#myBody");
@@ -278,6 +280,7 @@ async function markPurchased(id) {
   }
 }
 
+// Якщо користувач вже залогінений до завантаження
 if (window.Auth && window.Auth.user) {
   renderMyOwnedFromCache();
 }
