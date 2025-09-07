@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>MARKI Secure — Demo</title>
   <link rel="stylesheet" href="styles.css">
-  <!-- Порядок підключень: config -> firebase -> auth-ui -> утиліти -> app -->
+  <!-- Порядок важен: config -> firebase -> auth-ui -> utils (qrcode) -> app -->
   <script defer src="config.js"></script>
   <script type="module" defer src="firebase.js"></script>
   <script defer src="auth-ui.js"></script>
@@ -28,7 +28,7 @@
       <button class="tab active" id="userTab" data-tab="user">Користувач</button>
       <button class="tab" id="adminTab" data-tab="admin" style="display:none">Адмін</button>
 
-      <a class="cartbtn" href="cart.html">🛒 Кошик <span id="cartCount">0</span></a>
+      <a class="cartbtn" href="account.html" id="accountLink" style="display:none">Мій акаунт</a>
 
       <!-- AUTH UI -->
       <div class="authbox">
@@ -40,7 +40,6 @@
 
         <button id="loginBtn"  class="btn">Увійти</button>
         <button id="logoutBtn" class="btn ghost" style="display:none">Вийти</button>
-        <a id="accountLink" href="account.html" class="btn ghost" style="display:none">Мій акаунт</a>
 
         <div id="authPanel" class="auth-panel hidden">
           <button id="gLogin" class="btn wide">Увійти через Google</button>
@@ -65,13 +64,19 @@
         <form id="createForm" class="form">
           <div class="form-grid">
             <div class="field">
+              <label>Бренд</label>
+              <select id="brandSelect" class="select"></select>
+              <div class="small muted">Використовується ваш бренд (або оберіть, якщо їх декілька)</div>
+            </div>
+
+            <div class="field">
               <label>Назва*</label>
               <input name="name" id="name" placeholder="Наприклад, Coke Zero 330ml" required />
             </div>
 
             <div class="field">
               <label>Дата виготовлення (необов'язково)</label>
-              <input name="mfg" id="mfg" placeholder="дд.мм.гггг"/>
+              <input name="mfg" id="mfg" placeholder="дд.мм.гггг або 2025-09-01"/>
             </div>
 
             <div class="field">
@@ -107,6 +112,33 @@
             <div><b>Стан:</b> <span class="badge" id="createdState"></span></div>
             <div class="mono"><b>Публічне посилання:</b> <span id="createdUrl"></span></div>
           </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Інтеграція API</h3>
+        <div class="small muted">Налаштуйте ключ і використовуйте інжест URL з вашої CRM.</div>
+        <div class="row" style="align-items:flex-end">
+          <div class="field" style="flex:2">
+            <label>Ingest URL</label>
+            <input id="ingestUrl" readonly>
+          </div>
+          <div class="actions">
+            <button id="copyIngest" class="btn">Копіювати</button>
+            <button id="createKey" class="btn primary">Створити API-ключ</button>
+          </div>
+        </div>
+        <div id="createdKeyBox" class="result warn hidden" style="margin-top:8px">
+          <div><b>Новий ключ:</b> <span id="createdKeyValue" class="mono"></span></div>
+          <div class="small muted">Збережіть ключ — він показується лише один раз.</div>
+        </div>
+        <div class="tablewrap" style="margin-top:10px">
+          <table class="table">
+            <thead>
+              <tr><th>ID</th><th>Префікс</th><th>Хеш (част.)</th><th>Створив</th><th>Створено</th><th>Використано</th><th>IP</th><th></th></tr>
+            </thead>
+            <tbody id="keysBody"><tr><td colspan="8" class="muted">—</td></tr></tbody>
+          </table>
         </div>
       </div>
 
