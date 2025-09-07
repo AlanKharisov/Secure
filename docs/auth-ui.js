@@ -1,269 +1,178 @@
-;(function () {
+(function () {
   "use strict";
 
-  // --- helpers ---
-  function $(sel, scope) { return (scope || document).querySelector(sel); }
-  function setText(el, txt) { if (el) el.textContent = txt == null ? "" : String(txt); }
-  function show(el, on) { if (!el) return; el.style.display = on ? "" : "none"; }
-  function esc(s) {
-    s = s == null ? "" : String(s);
-    return s.replace(/[&<>"']/g, function (m) {
-      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[m];
-    });
-  }
+  function $(s, sc){ return (sc || document).querySelector(s); }
   function compactEmail(email) {
     if (!email) return "";
     var parts = email.split("@");
     if (parts.length < 2) return email;
-    var name = parts[0];
-    var domain = parts[1];
-    var short = name.length > 3 ? (name.slice(0, 2) + "…") : name;
+    var name = parts[0], domain = parts[1];
+    var short = name.length > 3 ? (name.slice(0,2) + "…") : name;
     return short + "@" + domain;
   }
-  function fetchJSON(url, opts) {
-    opts = opts || {};
-    return fetch(url, opts).then(function (res) {
-      if (!res.ok) {
-        return res.text().then(function (t) {
-          throw new Error(t || ("HTTP " + res.status));
-        });
-      }
-      var ct = (res.headers.get("content-type") || "").toLowerCase();
-      if (ct.indexOf("application/json") === -1) return {};
+  function fetchJSON(url, opts, expectJson) {
+    if (opts === void 0) opts = {};
+    if (expectJson === void 0) expectJson = true;
+    return fetch(url, opts).then(function(res){
+      if (!res.ok) return res.text().then(function(t){ throw new Error(t || ("HTTP " + res.status)); });
+      if (!expectJson) return null;
+      var ct = res.headers.get("content-type") || "";
+      if (ct.indexOf("application/json") === -1) return null;
       return res.json();
     });
   }
+  function authUser(){ return (window.Auth && window.Auth.user) ? (window.Auth.user.email || window.Auth.user.uid) : ""; }
+  function authHeaders(){ var u = authUser(); return u ? { "X-User": u } : {}; }
+  function esc(s){ return (s == null ? "" : String(s)).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); }); }
 
-  // --- dom refs (можуть бути відсутні на деяких сторінках — все ок) ---
   var emailEl = $("#authEmail");
   var photoEl = $("#authPhoto");
-  var loginBtn = $("#loginBtn");
-  var logoutBtn = $("#logoutBtn");
-  var authPanel = $("#authPanel");
-  var gLogin = $("#gLogin");
+  var login   = $("#loginBtn");
+  var logout  = $("#logoutBtn");
+  var panel   = $("#authPanel");
+  var gLogin  = $("#gLogin");
   var emailIn = $("#email");
-  var passIn = $("#password");
+  var passIn  = $("#password");
   var emailSignIn = $("#emailSignIn");
   var emailSignUp = $("#emailSignUp");
-  var errBox = $("#authErr");
+  var errBox  = $("#authErr");
   var accountLink = $("#accountLink");
+  var brandChips = $("#brandChips");
 
-  // чіпси брендів у хедері та на сторінці акаунта
-  var brandChipsHeader = $("#brandChips");
-  var brandChipsProfile = $("#pBrands");
-
-  // вкладки (можуть бути лише на index.html)
   var adminTab = $("#adminTab");
   var manufTab = $("#manufTab");
   var userTab  = $("#userTab");
 
-  // елементи профілю (на account.html)
-  var pPhoto = $("#pPhoto");
-  var pName  = $("#pName");
-  var pEmail = $("#pEmail");
-
-  // --- конфіг з window (встановлюється в config.js або беком) ---
-  var API = window.API_BASE || window.location.origin;
-  var CLIENT_ADMINS = window.CLIENT_ADMINS instanceof Set ? window.CLIENT_ADMINS : new Set();
-  var EMAIL_BRANDS = window.EMAIL_BRANDS || {};
-  var CLIENT_MANUFACTURERS = window.CLIENT_MANUFACTURERS instanceof Set ? window.CLIENT_MANUFACTURERS : new Set();
-
-  // --- state ---
-  var CURRENT_ROLES = { email: "", isAdmin: false, isManufacturer: false, brands: [] };
-
-  function showErr(msg) {
+  function showErr(msg){
     if (!errBox) return;
     errBox.style.display = "block";
-    setText(errBox, msg);
+    errBox.textContent = msg;
   }
-  function clearErr() {
-    if (!errBox) return;
-    errBox.style.display = "none";
-    setText(errBox, "");
-  }
-
-  // --- бренди користувача (бек → фолбек config.js) ---
- function fetchMyBrands(email) {
-  if (!email) return Promise.resolve([]);
-
-  const fallback = () => {
-    if (window.EMAIL_BRANDS && window.EMAIL_BRANDS[email]) {
-      return window.EMAIL_BRANDS[email];
-    }
-    if (window.CLIENT_MANUFACTURERS && window.CLIENT_MANUFACTURERS.has(email)) {
-      return [{ name: "Your Brand", slug: "YOUR-BRAND", verified: false }];
-    }
-    return [];
-  };
-
-  // Можна примусово брати тільки з config.js (див. пункт 2 нижче)
-  if (window.FORCE_BRANDS_FROM_CONFIG) {
-    return Promise.resolve(fallback());
-  }
-
-  const url = (window.API_BASE || window.location.origin) +
-              "/api/manufacturers?owner=" + encodeURIComponent(email);
-
-  return fetch(url, { headers: { "X-User": email } })
-    .then(res => res.ok ? res.json() : null)
-    .then(data => (Array.isArray(data) && data.length) ? data : fallback())
-    .catch(() => fallback());
-}
+  function clearErr(){ if (errBox){ errBox.style.display = "none"; errBox.textContent = ""; } }
 
   function renderBrandChips(list) {
-    function renderInto(container) {
-      if (!container) return;
-      container.innerHTML = "";
-      if (!list || !list.length) {
-        var span = document.createElement("span");
-        span.className = "muted small";
-        span.textContent = "— у вас немає брендів —";
-        container.appendChild(span);
-        return;
-      }
-      list.forEach(function (b) {
-        var chip = document.createElement("span");
-        chip.className = "badge";
-        chip.textContent = b.name + (b.verified ? " ✓" : "");
-        container.appendChild(chip);
-      });
+    if (!brandChips) return;
+    brandChips.innerHTML = "";
+    if (!list || !list.length) {
+      var span = document.createElement("span");
+      span.className = "muted small";
+      span.textContent = "— у вас немає брендів —";
+      brandChips.appendChild(span);
+      return;
     }
-    renderInto(brandChipsHeader);
-    renderInto(brandChipsProfile);
+    list.forEach(function(b){
+      var chip = document.createElement("span");
+      chip.className = "badge";
+      chip.textContent = b.name + (b.verified ? " ✓" : "");
+      brandChips.appendChild(chip);
+    });
   }
 
   function setTabsVisibility(isAdmin, isManufacturer) {
     if (adminTab) adminTab.style.display = isAdmin ? "" : "none";
     if (manufTab) manufTab.style.display = isManufacturer ? "" : "none";
-
-    // якщо активна вкладка стала прихованою — вмикаємо "Користувач"
-    var active = document.querySelector(".tab.active");
-    var needSwitch = false;
-    if (active === adminTab && !isAdmin) needSwitch = true;
-    if (active === manufTab && !isManufacturer) needSwitch = true;
-
-    if (needSwitch) {
-      if (active) active.classList.remove("active");
-      if (userTab) {
-        userTab.classList.add("active");
-        var userPane = $("#user");
-        var others = document.querySelectorAll(".tabpane");
-        for (var i = 0; i < others.length; i++) others[i].classList.remove("active");
-        if (userPane) userPane.classList.add("active");
-      }
-    }
+    var anyActive = document.querySelector(".tab.active");
+    if (!anyActive && userTab) userTab.classList.add("active");
   }
 
-  function onUserChange(u) {
+  function onUserChange(u){
     clearErr();
-
     if (u) {
-      // header
-      setText(emailEl, compactEmail(u.email));
+      if (emailEl) emailEl.textContent = compactEmail(u.email);
       if (photoEl) {
-        if (u.photoURL) { photoEl.src = u.photoURL; show(photoEl, true); }
-        else show(photoEl, false);
+        if (u.photoURL) { photoEl.src = u.photoURL; photoEl.style.display = "inline-block"; }
+        else photoEl.style.display = "none";
       }
-      show(loginBtn, false);
-      show(logoutBtn, true);
-      if (authPanel) authPanel.classList.add("hidden");
-      show(accountLink, true);
+      if (login)  login.style.display = "none";
+      if (logout) logout.style.display = "inline-block";
+      if (panel)  panel.classList.add("hidden");
+      if (accountLink) accountLink.style.display = "inline-block";
 
-      // account page
-      if (pName)  setText(pName, u.displayName || u.email || u.uid);
-      if (pEmail) setText(pEmail, u.email || "");
-      if (pPhoto) {
-        if (u.photoURL) { pPhoto.src = u.photoURL; show(pPhoto, true); }
-        else show(pPhoto, false);
-      }
-
-      var email = u.email || u.uid;
-      var isAdmin = CLIENT_ADMINS.has(email);
-
-      fetchMyBrands(email).then(function (brands) {
-        var isManufacturer = Array.isArray(brands) && brands.length > 0;
-
-        renderBrandChips(brands);
-        setTabsVisibility(isAdmin, isManufacturer);
-
-        CURRENT_ROLES = { email: email, isAdmin: isAdmin, isManufacturer: isManufacturer, brands: brands };
-        document.dispatchEvent(new CustomEvent("roles-ready", { detail: CURRENT_ROLES }));
-      });
+      // Тяним роли/бренды с бэка
+      var url = (window.API_BASE || window.location.origin) + "/api/me";
+      fetchJSON(url, { headers: authHeaders() })
+        .then(function(me){
+          var brands = Array.isArray(me.brands) ? me.brands : [];
+          renderBrandChips(brands);
+          setTabsVisibility(!!me.isAdmin, brands.length > 0);
+          // уведомим приложение
+          document.dispatchEvent(new CustomEvent("roles-ready", {
+            detail: { email: u.email || u.uid, isAdmin: !!me.isAdmin, isManufacturer: brands.length > 0, brands: brands }
+          }));
+        })
+        .catch(function(){
+          // фолбек
+          var email = u.email || u.uid;
+          var brands = (window.EMAIL_BRANDS && window.EMAIL_BRANDS[email]) ? window.EMAIL_BRANDS[email] : [];
+          var isAdmin = !!(window.CLIENT_ADMINS && window.CLIENT_ADMINS.has && window.CLIENT_ADMINS.has(email));
+          renderBrandChips(brands);
+          setTabsVisibility(isAdmin, brands.length > 0);
+          document.dispatchEvent(new CustomEvent("roles-ready", {
+            detail: { email: email, isAdmin: isAdmin, isManufacturer: brands.length > 0, brands: brands }
+          }));
+        });
     } else {
-      // header
-      setText(emailEl, "");
-      show(photoEl, false);
-      show(loginBtn, true);
-      show(logoutBtn, false);
-      show(accountLink, false);
-      if (authPanel) authPanel.classList.add("hidden");
-
-      // account page
-      setText(pName, "");
-      setText(pEmail, "");
-      show(pPhoto, false);
-
+      if (emailEl) emailEl.textContent = "";
+      if (photoEl) photoEl.style.display = "none";
+      if (login)  login.style.display = "inline-block";
+      if (logout) logout.style.display = "none";
+      if (accountLink) accountLink.style.display = "none";
       renderBrandChips([]);
       setTabsVisibility(false, false);
-
-      CURRENT_ROLES = { email: "", isAdmin: false, isManufacturer: false, brands: [] };
-      document.dispatchEvent(new CustomEvent("roles-ready", { detail: CURRENT_ROLES }));
+      document.dispatchEvent(new CustomEvent("roles-ready", {
+        detail: { email:"", isAdmin:false, isManufacturer:false, brands:[] }
+      }));
     }
   }
 
-  // --- events ---
-  document.addEventListener("auth-changed", function (e) {
-    onUserChange(e.detail);
-  });
+  document.addEventListener("auth-changed", function(e){ onUserChange(e.detail); });
 
-  if (loginBtn) {
-    loginBtn.addEventListener("click", function () {
-      if (authPanel) authPanel.classList.toggle("hidden");
+  if (login) {
+    login.addEventListener("click", function(){
+      if (panel) panel.classList.toggle("hidden");
       clearErr();
     });
   }
-  if (logoutBtn) {
-    logoutBtn.addEventListener("click", function () {
+  if (logout) {
+    logout.addEventListener("click", function(){
       if (window.Auth && window.Auth.signOut) {
-        window.Auth.signOut().catch(function (e) { showErr(e.message); });
+        window.Auth.signOut().catch(function(e){ showErr(e.message); });
       }
     });
   }
   if (gLogin) {
-    gLogin.addEventListener("click", function () {
+    gLogin.addEventListener("click", function(){
       if (window.Auth && window.Auth.signInGoogle) {
-        window.Auth.signInGoogle().catch(function (e) { showErr(e.message); });
+        window.Auth.signInGoogle().catch(function(e){ showErr(e.message); });
       }
     });
   }
   if (emailSignIn) {
-    emailSignIn.addEventListener("click", function () {
+    emailSignIn.addEventListener("click", function(){
       clearErr();
       var em = (emailIn && emailIn.value || "").trim();
       var pw = (passIn && passIn.value || "").trim();
       if (window.Auth && window.Auth.signInEmail) {
-        window.Auth.signInEmail(em, pw).catch(function (e) { showErr(e.message); });
+        window.Auth.signInEmail(em, pw).catch(function(e){ showErr(e.message); });
       }
     });
   }
   if (emailSignUp) {
-    emailSignUp.addEventListener("click", function () {
+    emailSignUp.addEventListener("click", function(){
       clearErr();
       var em = (emailIn && emailIn.value || "").trim();
       var pw = (passIn && passIn.value || "").trim();
       if (window.Auth && window.Auth.signUpEmail) {
-        window.Auth.signUpEmail(em, pw).catch(function (e) { showErr(e.message); });
+        window.Auth.signUpEmail(em, pw).catch(function(e){ showErr(e.message); });
       }
     });
   }
 
-  // клік поза панеллю — сховати її
-  document.addEventListener("click", function (ev) {
-    if (!authPanel || authPanel.classList.contains("hidden")) return;
-    var inside = authPanel.contains(ev.target) || (loginBtn && loginBtn.contains(ev.target));
-    if (!inside) authPanel.classList.add("hidden");
+  document.addEventListener("click", function(ev){
+    if (!panel || panel.classList.contains("hidden")) return;
+    var inside = panel.contains(ev.target) || (login && login.contains(ev.target));
+    if (!inside) panel.classList.add("hidden");
   });
 
-  // якщо вже авторизований — одразу відмалюємо
   if (window.Auth && window.Auth.user) onUserChange(window.Auth.user);
 })();
