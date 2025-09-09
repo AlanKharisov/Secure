@@ -16,17 +16,21 @@
     return fetch(url, opts).then(function(res){
       if (!res.ok) return res.text().then(function(t){ throw new Error(t || ("HTTP " + res.status)); });
       if (!expectJson) return null;
-      var ct = res.headers.get("content-type") || "";
+      var ct = (res.headers.get("content-type") || "").toLowerCase();
       if (ct.indexOf("application/json") === -1) return null;
       return res.json();
     });
   }
   function authUser(){ return (window.Auth && window.Auth.user) ? (window.Auth.user.email || window.Auth.user.uid) : ""; }
   function authHeaders(){ var u = authUser(); return u ? { "X-User": u } : {}; }
-  function esc(s){ return (s == null ? "" : String(s)).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); }); }
 
-  var emailEl = $("#authEmail");
-  var photoEl = $("#authPhoto");
+  // два набори елементів (для різних сторінок)
+  var emailEl   = $("#authEmail");
+  var photoEl   = $("#authPhoto");
+  var pEmailEl  = $("#pEmail");
+  var pNameEl   = $("#pName");
+  var pPhotoEl  = $("#pPhoto");
+
   var login   = $("#loginBtn");
   var logout  = $("#logoutBtn");
   var panel   = $("#authPanel");
@@ -36,12 +40,6 @@
   var emailSignIn = $("#emailSignIn");
   var emailSignUp = $("#emailSignUp");
   var errBox  = $("#authErr");
-  var accountLink = $("#accountLink");
-  var brandChips = $("#brandChips");
-
-  var adminTab = $("#adminTab");
-  var manufTab = $("#manufTab");
-  var userTab  = $("#userTab");
 
   function showErr(msg){
     if (!errBox) return;
@@ -50,75 +48,52 @@
   }
   function clearErr(){ if (errBox){ errBox.style.display = "none"; errBox.textContent = ""; } }
 
-  function renderBrandChips(list) {
-    if (!brandChips) return;
-    brandChips.innerHTML = "";
-    if (!list || !list.length) {
-      var span = document.createElement("span");
-      span.className = "muted small";
-      span.textContent = "— у вас немає брендів —";
-      brandChips.appendChild(span);
-      return;
+  function renderHeaderUser(u){
+    if (emailEl) emailEl.textContent = compactEmail(u?.email || u?.uid || "");
+    if (photoEl) {
+      if (u && u.photoURL) { photoEl.src = u.photoURL; photoEl.style.display = "inline-block"; }
+      else photoEl.style.display = "none";
     }
-    list.forEach(function(b){
-      var chip = document.createElement("span");
-      chip.className = "badge";
-      chip.textContent = b.name + (b.verified ? " ✓" : "");
-      brandChips.appendChild(chip);
-    });
-  }
-
-  function setTabsVisibility(isAdmin, isManufacturer) {
-    if (adminTab) adminTab.style.display = isAdmin ? "" : "none";
-    if (manufTab) manufTab.style.display = isManufacturer ? "" : "none";
-    var anyActive = document.querySelector(".tab.active");
-    if (!anyActive && userTab) userTab.classList.add("active");
+    if (pEmailEl) pEmailEl.textContent = (u?.email || "");
+    if (pNameEl)  pNameEl.textContent  = (u?.displayName || u?.email || "");
+    if (pPhotoEl) {
+      if (u && u.photoURL) { pPhotoEl.src = u.photoURL; pPhotoEl.style.display = "inline-block"; }
+      else pPhotoEl.style.display = "none";
+    }
   }
 
   function onUserChange(u){
     clearErr();
     if (u) {
-      if (emailEl) emailEl.textContent = compactEmail(u.email);
-      if (photoEl) {
-        if (u.photoURL) { photoEl.src = u.photoURL; photoEl.style.display = "inline-block"; }
-        else photoEl.style.display = "none";
-      }
+      renderHeaderUser(u);
       if (login)  login.style.display = "none";
       if (logout) logout.style.display = "inline-block";
       if (panel)  panel.classList.add("hidden");
-      if (accountLink) accountLink.style.display = "inline-block";
 
-      // Тяним роли/бренды с бэка
+      // /api/me -> бренди/ролі
       var url = (window.API_BASE || window.location.origin) + "/api/me";
       fetchJSON(url, { headers: authHeaders() })
         .then(function(me){
           var brands = Array.isArray(me.brands) ? me.brands : [];
-          renderBrandChips(brands);
-          setTabsVisibility(!!me.isAdmin, brands.length > 0);
-          // уведомим приложение
+          // повідомляємо інші скрипти
           document.dispatchEvent(new CustomEvent("roles-ready", {
             detail: { email: u.email || u.uid, isAdmin: !!me.isAdmin, isManufacturer: brands.length > 0, brands: brands }
           }));
         })
         .catch(function(){
-          // фолбек
-          var email = u.email || u.uid;
-          var brands = (window.EMAIL_BRANDS && window.EMAIL_BRANDS[email]) ? window.EMAIL_BRANDS[email] : [];
-          var isAdmin = !!(window.CLIENT_ADMINS && window.CLIENT_ADMINS.has && window.CLIENT_ADMINS.has(email));
-          renderBrandChips(brands);
-          setTabsVisibility(isAdmin, brands.length > 0);
           document.dispatchEvent(new CustomEvent("roles-ready", {
-            detail: { email: email, isAdmin: isAdmin, isManufacturer: brands.length > 0, brands: brands }
+            detail: { email: u.email || u.uid, isAdmin: false, isManufacturer: false, brands: [] }
           }));
         });
     } else {
       if (emailEl) emailEl.textContent = "";
       if (photoEl) photoEl.style.display = "none";
+      if (pEmailEl) pEmailEl.textContent = "";
+      if (pNameEl)  pNameEl.textContent  = "";
+      if (pPhotoEl) pPhotoEl.style.display = "none";
+
       if (login)  login.style.display = "inline-block";
       if (logout) logout.style.display = "none";
-      if (accountLink) accountLink.style.display = "none";
-      renderBrandChips([]);
-      setTabsVisibility(false, false);
       document.dispatchEvent(new CustomEvent("roles-ready", {
         detail: { email:"", isAdmin:false, isManufacturer:false, brands:[] }
       }));
