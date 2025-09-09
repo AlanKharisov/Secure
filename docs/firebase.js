@@ -10,7 +10,7 @@ import {
   createUserWithEmailAndPassword,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
-// ⚠️ Твой конфиг
+// ⚠️ Твій конфіг (без змін, якщо валідний)
 const firebaseConfig = {
   apiKey: "AIzaSyBknpQ46_NXV0MisgfjZ7Qs-XS9jhn7hws",
   authDomain: "fir-d9f54.firebaseapp.com",
