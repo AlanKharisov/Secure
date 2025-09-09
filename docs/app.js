@@ -13,61 +13,23 @@ function addQuery(url, params) {
   });
   return u.toString();
 }
-
-// Tabs
-document.querySelectorAll(".tab").forEach(function(btn){
-  btn.addEventListener("click", function(){
-    document.querySelectorAll(".tab").forEach(function(b){ b.classList.remove("active"); });
-    document.querySelectorAll(".tabpane").forEach(function(p){ p.classList.remove("active"); });
-    btn.classList.add("active");
-    var pane = $("#" + btn.dataset.tab);
-    if (pane) pane.classList.add("active");
-
-    var tab = btn.dataset.tab;
-    if (tab === "manufacturer") { syncIngestUI(); loadManufacturerProducts(); loadKeys(); }
-    if (tab === "admin") { loadAllProducts(); }
-    if (tab === "user") { renderMyOwnedFromCache(); }
-  });
-});
-
-// roles
-var CURRENT_ROLES = { email:"", isAdmin:false, isManufacturer:false, brands:[] };
-document.addEventListener("roles-ready", function(e){
-  CURRENT_ROLES = e.detail || CURRENT_ROLES;
-  fillBrandSelect(CURRENT_ROLES.brands);
-  syncIngestUI();
-  if (CURRENT_ROLES.isManufacturer) loadManufacturerProducts();
-  if (CURRENT_ROLES.isAdmin) loadAllProducts();
-  renderMyOwnedFromCache();
-});
-
-// helpers
 function fetchJSON(url, opts, expectJson) {
   if (opts === void 0) opts = {};
   if (expectJson === void 0) expectJson = true;
   return fetch(url, opts).then(function(res){
     if (!res.ok) return res.text().then(function(t){ throw new Error(t || ("HTTP " + res.status)); });
     if (!expectJson) return null;
-    var ct = res.headers.get("content-type") || "";
+    var ct = (res.headers.get("content-type") || "").toLowerCase();
     if (ct.indexOf("application/json") === -1) return null;
     return res.json();
   });
 }
 
-// QR
-var publicQR = null;
-function getPublicQR() {
-  var node = document.getElementById("publicQR");
-  if (!node) return null;
-  if (!publicQR) publicQR = new QRCode(node, { text: "", width: 180, height: 180 });
-  return publicQR;
-}
-
-// Manufacturer form
+// ===== Manufacturer form (створення продуктів) =====
 var createForm = $("#createForm");
 var createdBlock = $("#createdBlock");
 var lastCreatedUrl = "";
-var brandSelect = $("#brandSelect");
+var brandSelect = $("#brandSelect"); // може бути відсутній
 
 function fillBrandSelect(brands) {
   if (!brandSelect) return;
@@ -91,6 +53,7 @@ function fillBrandSelect(brands) {
 if (createForm) {
   createForm.addEventListener("submit", function(e){
     e.preventDefault();
+    if (!authUser()) { alert("Увійдіть"); return; }
 
     var fd = new FormData(createForm);
     var name = (fd.get("name") || "").toString().trim();
@@ -99,24 +62,20 @@ if (createForm) {
     var edStr= (fd.get("edition") || "1").toString().trim();
     var edition = Math.max(1, parseInt(edStr, 10) || 1);
 
-    if (!authUser()) { alert("Увійдіть"); return; }
-    if (!CURRENT_ROLES.isManufacturer) { alert("У вас немає бренду/прав виробника"); return; }
     if (!name) { alert("Назва обовʼязкова"); return; }
 
-    var brandSlug = (brandSelect && brandSelect.value) ? brandSelect.value : ((CURRENT_ROLES.brands[0] || {}).slug || "");
-    if (!brandSlug) { alert("Не вказаний бренд"); return; }
-
-    var body = { name: name, brand: brandSlug, editionCount: edition };
+    // Бекенд сам визначить бренд за X-User (для адміна можна додати X-Brand заголовком)
+    var body = { name: name, quantity: edition };
     if (mfg) body.manufacturedAt = mfg;
     if (image) body.image = image;
 
-    fetchJSON(API + "/api/manufacturer/products", {
+    fetchJSON(API + "/api/products", {
       method: "POST",
       headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
       body: JSON.stringify(body)
-    }).then(function(p){
-      // если партия — вернётся массив; возьмём первую позицию для QR
-      var item = Array.isArray(p) ? p[0] : p;
+    }).then(function(resp){
+      var created = Array.isArray(resp.created) ? resp.created : (Array.isArray(resp) ? resp : []);
+      var item = created[0] || resp;
       if (!item || !item.id) throw new Error("Unexpected response");
       lastCreatedUrl = item.publicUrl || (API + "/details.html?id=" + item.id);
       if (createdBlock) createdBlock.classList.remove("hidden");
@@ -124,57 +83,22 @@ if (createForm) {
       var el2 = $("#createdState"); if (el2) el2.textContent = item.state || "created";
       var el3 = $("#createdUrl");   if (el3) el3.textContent = lastCreatedUrl;
 
-      var qr = getPublicQR();
-      if (qr) { qr.clear(); qr.makeCode(lastCreatedUrl); }
+      // QR (тільки якщо є бібліотека QRCode і контейнер)
+      var qrWrap = document.getElementById("publicQR");
+      if (qrWrap && window.QRCode) {
+        qrWrap.innerHTML = "";
+        new QRCode(qrWrap, { text: lastCreatedUrl, width: 180, height: 180 });
+      }
 
       loadManufacturerProducts();
-      renderMyOwnedFromCache();
       createForm.reset();
     }).catch(function(err){ alert(err.message); });
   });
 }
 
-// Download QR
-var dlBtn = $("#downloadQR");
-if (dlBtn) {
-  dlBtn.addEventListener("click", function(){
-    var node = document.querySelector("#publicQR canvas") || document.querySelector("#publicQR img");
-    if (!node) { alert("QR ще не згенерований"); return; }
-    var dataURL = "";
-    if (node.tagName.toLowerCase() === "canvas") dataURL = node.toDataURL("image/png");
-    else dataURL = node.src || "";
-    if (!dataURL) { alert("Не вдалося отримати QR"); return; }
-
-    var a = document.createElement("a");
-    a.href = dataURL;
-    a.download = "qr.png";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  });
-}
-
-// Copy URL
-var copyBtn = $("#copyUrl");
-if (copyBtn) {
-  copyBtn.addEventListener("click", function(){
-    if (!lastCreatedUrl) return;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(lastCreatedUrl).then(function(){
-        alert("Посилання скопійовано");
-      }, function(){
-        alert("Не вдалося скопіювати");
-      });
-    } else {
-      alert("Clipboard API недоступний");
-    }
-  });
-}
-
-// Tables
+// ===== Завантаження таблиць (manufacturer/admin) =====
 var manufBody = $("#productsBody");
 var allBody   = $("#allBody");
-var myBody    = $("#myBody");
 var _lastProducts = [];
 
 function loadManufacturerProducts() {
@@ -190,12 +114,11 @@ function loadManufacturerProducts() {
       _lastProducts = Array.isArray(list) ? list : [];
       if (!_lastProducts.length) {
         manufBody.innerHTML = '<tr><td colspan="6" class="muted">Ще немає продуктів</td></tr>';
-        renderMyOwnedFromCache();
         return;
       }
       manufBody.innerHTML = "";
       _lastProducts.forEach(function(p){
-        var detailsUrl = addQuery("details.html?id=" + encodeURIComponent(p.id), { s: p.serialHash || "" });
+        var detailsUrl = "details.html?id=" + encodeURIComponent(p.id);
         var tr = document.createElement("tr");
         tr.innerHTML =
           '<td>' + p.id + '</td>' +
@@ -206,7 +129,6 @@ function loadManufacturerProducts() {
           '<td><a class="btn" href="' + detailsUrl + '" target="_blank" rel="noopener">Деталі</a></td>';
         manufBody.appendChild(tr);
       });
-      renderMyOwnedFromCache();
     })
     .catch(function(e){
       console.error("loadManufacturerProducts:", e);
@@ -222,7 +144,7 @@ function loadAllProducts() {
   }
   allBody.innerHTML = '<tr><td colspan="7" class="muted">Завантаження…</td></tr>';
 
-  fetchJSON(API + "/api/products?all=1", { headers: authHeaders() })
+  fetchJSON(API + "/api/products", { headers: authHeaders() })
     .then(function(list){
       if (!Array.isArray(list) || !list.length) {
         allBody.innerHTML = '<tr><td colspan="7" class="muted">Нічого не знайдено</td></tr>';
@@ -230,8 +152,8 @@ function loadAllProducts() {
       }
       allBody.innerHTML = "";
       list.forEach(function(p){
-        var detailsUrl = addQuery("details.html?id=" + encodeURIComponent(p.id), { s: p.serialHash || "" });
-        var brand = p.brandSlug || (p.meta && p.meta.brand) || "";
+        var detailsUrl = "details.html?id=" + encodeURIComponent(p.id);
+        var brand = p.brandSlug || "";
         var tr = document.createElement("tr");
         tr.innerHTML =
           '<td>' + p.id + '</td>' +
@@ -250,42 +172,7 @@ function loadAllProducts() {
     });
 }
 
-function renderMyOwnedFromCache() {
-  if (!myBody) return;
-  var me = (authUser() || "").toLowerCase();
-  if (!me) {
-    myBody.innerHTML = '<tr><td colspan="6" class="muted">Увійдіть, щоб побачити свої товари</td></tr>';
-    return;
-  }
-  var mine = _lastProducts.filter(function(p){ return (p.owner || "").toLowerCase() === me; });
-  myBody.innerHTML = "";
-  var pCnt=0, cCnt=0, clCnt=0;
-  if (!mine.length) {
-    myBody.innerHTML = '<tr><td colspan="6" class="muted">Ще немає товарів</td></tr>';
-  } else {
-    mine.forEach(function(pdt){
-      if (pdt.state === "purchased") pCnt++;
-      else if (pdt.state === "created") cCnt++;
-      else if (pdt.state === "claimed") clCnt++;
-      var img = (pdt.meta && pdt.meta.image || "").trim() ? '<img class="thumb" src="' + esc(pdt.meta.image) + '" alt="">' : "";
-      var detailsUrl = addQuery("details.html?id=" + encodeURIComponent(pdt.id), { s: pdt.serialHash || "" });
-      var tr = document.createElement("tr");
-      tr.innerHTML =
-        '<td>' + img + '</td>' +
-        '<td>' + esc(pdt.meta && pdt.meta.name || "-") + '</td>' +
-        '<td class="mono">' + esc(pdt.meta && pdt.meta.serial || "-") + '</td>' +
-        '<td class="mono">' + pdt.id + '</td>' +
-        '<td><span class="badge">' + esc(pdt.state) + '</span></td>' +
-        '<td><a class="btn" href="' + detailsUrl + '" target="_blank" rel="noopener">Відкрити</a></td>';
-      myBody.appendChild(tr);
-    });
-  }
-  var kp1 = document.getElementById("kPurchased"); if (kp1) kp1.textContent = String(pCnt);
-  var kp2 = document.getElementById("kCreated");   if (kp2) kp2.textContent = String(cCnt);
-  var kp3 = document.getElementById("kClaimed");   if (kp3) kp3.textContent = String(clCnt);
-}
-
-// Integration UI
+// ===== API keys =====
 var createdKeyBox = $("#createdKeyBox");
 var createdKeyValue = $("#createdKeyValue");
 var ingestUrlInput = $("#ingestUrl");
@@ -294,17 +181,13 @@ var createKeyBtn = $("#createKey");
 var keysBody = $("#keysBody");
 
 function primaryBrandSlug() {
-  return (CURRENT_ROLES.brands && CURRENT_ROLES.brands[0]) ? CURRENT_ROLES.brands[0].slug : "";
+  var b = (window.LAST_ROLES && window.LAST_ROLES.brands) ? window.LAST_ROLES.brands[0] : null;
+  return b ? b.slug : "";
 }
 function syncIngestUI() {
   if (!ingestUrlInput) return;
   var slug = primaryBrandSlug();
-  if (!slug) {
-    ingestUrlInput.value = "";
-    return;
-  }
-  var base = window.API_BASE || window.location.origin;
-  ingestUrlInput.value = base + "/api/integrations/ingest?brand=" + slug;
+  ingestUrlInput.value = slug ? (API + "/api/integrations/ingest") : "";
 }
 if (copyIngestBtn) {
   copyIngestBtn.addEventListener("click", function(){
@@ -376,7 +259,11 @@ if (createKeyBtn) {
   });
 }
 
-// preload if already logged in
-if (window.Auth && window.Auth.user) {
-  renderMyOwnedFromCache();
-}
+// Ролі з auth-ui.js
+document.addEventListener("roles-ready", function(e){
+  window.LAST_ROLES = e.detail || {};
+  fillBrandSelect(window.LAST_ROLES.brands || []);
+  syncIngestUI();
+  if (window.LAST_ROLES.isManufacturer) loadManufacturerProducts();
+  if (window.LAST_ROLES.isAdmin) loadAllProducts();
+});
