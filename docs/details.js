@@ -1,58 +1,76 @@
-import { api, qs, h, qrImg } from "./app.js";
-import { Auth } from "./firebase.js";
+// details.js
+import { api, qs, h, flash, makeQR } from "./app.js";
 
-const params = new URLSearchParams(location.search);
-const id = Number(params.get("id")||"0");
-const details = qs("#details");
-const actions = qs("#actions");
+async function loadDetails() {
+  const box = qs("#details");
+  const actions = qs("#actions");
+  const url = new URL(location.href);
+  const id = url.searchParams.get("id");
 
-Auth.onChange(async (u)=>{
-    qs("#loginBtn")?.classList.toggle("hidden", !!u);
-    qs("#logoutBtn")?.classList.toggle("hidden", !u);
-    await load();
-});
+  if (!id) {
+    box.textContent = "Невірне посилання (немає id).";
+    return;
+  }
 
-async function load(){
-    if (!id) { details.textContent = "Bad id"; return; }
-    details.textContent = "Завантаження…";
+  box.textContent = "Завантаження…";
+  try {
+    const data = await api(`/api/verify/${encodeURIComponent(id)}`);
+
+    const meta = data.metadata || {};
+    const rows = [
+      ["ID", String(data.tokenId)],
+      ["Стан", String(data.state)],
+      ["Назва", meta.name || "—"],
+      ["Дата", meta.manufacturedAt || "—"],
+      ["Едіція", data.editionNo && data.editionTotal ? `${data.editionNo}/${data.editionTotal}` : "—"],
+      ["Бренд", data.brandSlug || "—"],
+      ["Серійний", meta.serial || (data.scope === "full" ? "(порожньо)" : "— приховано —")],
+      ["Публічна URL", data.publicUrl || "—"]
+    ];
+
+    const table = h("div", { class: "kv" },
+      ...rows.map(([k,v]) =>
+        h("div", { class:"kv-row" },
+          h("div", { class:"kv-k" }, k),
+          h("div", { class:"kv-v" }, v)
+        )
+      )
+    );
+
+    // QR секція
+    const qrWrap = h("div", { class:"mt" },
+      h("h3", null, "QR на сторінку цього продукту"),
+      h("div", { id:"qrBox", class:"qrbox" })
+    );
+
+    box.innerHTML = "";
+    box.appendChild(table);
+    box.appendChild(qrWrap);
+
+    // Згенерувати QR (fallback без сторонніх скриптів)
+    const qrTarget = data.publicUrl || location.href;
+    makeQR(qs("#qrBox"), qrTarget, 220);
+
+    // Кнопки дій
     actions.innerHTML = "";
-    try{
-        const data = await api(`/api/verify/${id}`);
-        const url = data.publicUrl || `${location.origin}/details.html?id=${id}`;
-        const meta = data.metadata || {};
-
-        const box = h("div", { class:"grid" },
-            h("div", { class:"row" },
-                h("div", { class:"qr" }, qrImg(url, 160)),
-                h("div", {},
-                    h("div", {}, h("b", {}, meta.name || "Без назви")),
-                    h("div", {}, `ID: ${data.tokenId}`),
-                    h("div", {}, `Стан: ${data.state}`),
-                    h("div", {}, `Видимість: ${data.scope}`),
-                    h("div", {}, h("a", { href:url, target:"_blank" }, "Публічне посилання"))
-                )
-            )
-        );
-        details.replaceChildren(box);
-
-        if (data.canAcquire) {
-            const btn = h("button", { class:"primary", id:"buyBtn" }, "Забрати собі");
-            btn.addEventListener("click", async ()=>{
-                btn.disabled = true; btn.textContent = "Забираю…";
-                try{
-                    await api(`/api/products/${id}/purchase`, { method:"POST" });
-                    btn.textContent = "Готово!";
-                    setTimeout(()=>location.reload(), 800);
-                }catch(e){
-                    btn.disabled = false; btn.textContent = "Забрати собі";
-                    alert(e.message);
-                }
-            });
-            actions.appendChild(btn);
+    if (data.canAcquire) {
+      const btn = h("button", { class:"btn" }, "Отримати собі");
+      btn.addEventListener("click", async () => {
+        try {
+          const res = await api(`/api/products/${encodeURIComponent(data.tokenId)}/purchase`, { method:"POST" });
+          flash("Успіх! Тепер продукт закріплено за вами.");
+          setTimeout(() => location.reload(), 800);
+        } catch (e) {
+          flash(e.message || "Помилка покупки", "err");
         }
-    }catch(e){
-        details.textContent = e.message;
+      });
+      actions.appendChild(btn);
+    } else {
+      actions.appendChild(h("div", { class:"muted" }, "Цей продукт вже належить вам або покупка недоступна."));
     }
+  } catch (e) {
+    box.textContent = e.message || "Помилка завантаження.";
+  }
 }
 
-qs("#logoutBtn")?.addEventListener("click", ()=>Auth.signOut());
+loadDetails();
