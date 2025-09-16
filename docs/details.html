@@ -1,45 +1,33 @@
 <!doctype html>
 <html lang="uk">
 <head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1"/>
-    <title>Деталі продукту — MARKI Secure</title>
-    <link rel="stylesheet" href="styles.css">
-    <script type="module" src="firebase.js"></script>
-    <script defer src="auth-ui.js"></script>
-    <script defer src="cart.js"></script>
-    <script defer src="details.js"></script>
-    <script defer src="config.js"></script>
+    <meta charset="utf-8" />
+    <title>MARKI Secure — Перевірка</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="stylesheet" href="./style.css" />
+    <!-- Firebase SDK -->
+    <script type="module" src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js"></script>
+    <script type="module" src="https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js"></script>
 </head>
 <body>
-<div class="detail-card container">
-    <a href="index.html" class="btn">← Назад</a>
-    <h1 style="margin:10px 0 6px">Деталі продукту</h1>
-    <div class="sub muted">Публічний перегляд урізає чутливі поля; власник бачить повністю</div>
+<header class="topbar">
+    <div class="brand">Перевірка продукту</div>
+    <nav class="nav">
+        <a href="./index.html">Головна</a>
+        <button id="loginBtn">Увійти</button>
+        <button id="logoutBtn" class="hidden">Вийти</button>
+    </nav>
+</header>
 
-    <!-- AUTH UI в хедере -->
-    <div class="authbox" style="justify-content:flex-end; margin:8px 0">
-        <img id="authPhoto" class="avatar" alt="" style="display:none">
-        <span id="authEmail" class="muted"></span>
-        <span id="roleBadges" class="muted small" style="margin-left:6px"></span>
-        <button id="loginBtn"  class="btn">Увійти</button>
-        <button id="logoutBtn" class="btn ghost" style="display:none">Вийти</button>
-        <a id="accountLink" href="account.html" class="btn ghost" style="display:none">Мій акаунт</a>
+<main class="container">
+    <section class="card">
+        <div id="details">Завантаження…</div>
+        <div id="actions" class="mt"></div>
+    </section>
+</main>
 
-        <div id="authPanel" class="auth-panel hidden">
-            <button id="gLogin" class="btn wide">Увійти через Google</button>
-            <div class="muted small center" style="margin:6px 0">або email</div>
-            <input id="email" class="auth-input" placeholder="email">
-            <input id="password" class="auth-input" placeholder="пароль" type="password">
-            <div class="row" style="gap:8px">
-                <button id="emailSignIn" class="btn">Вхід</button>
-                <button id="emailSignUp" class="btn ghost">Реєстрація</button>
-            </div>
-            <div id="authErr" class="result bad" style="display:none; margin-top:8px"></div>
-        </div>
-    </div>
-
-    <div id="content" class="card" style="margin-top:14px">Завантаження…</div>
-</div>
+<script type="module" src="./firebase.js"></script>
+<script type="module" src="./app.js"></script>
+<script type="module" src="./details.js"></script>
 </body>
 </html>

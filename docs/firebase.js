@@ -1,10 +1,12 @@
-// Firebase (Redirect flow) — без popup → нет COOP предупреждений
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+// firebase.js (ESM). Заповни конфіг нижче зі своєї Firebase консолі.
+// Console → Project settings → "Your apps" → Web → SDK setup and configuration.
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
 import {
-    getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult,
-    signOut, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged,
+    signOut, getIdToken
+} from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
 
+// !!! ЗАМІНИ на свій реальний конфіг:
 const firebaseConfig = {
     apiKey: "AIzaSyBknpQ46_NXV0MisgfjZ7Qs-XS9jhn7hws",
     authDomain: "fir-d9f54.firebaseapp.com",
@@ -14,31 +16,34 @@ const firebaseConfig = {
     appId: "1:797519127919:web:016740e5f7f6fe333eb49a",
     measurementId: "G-LHZJH1VPG6"
 };
+// -----------------------------
 
-const app  = initializeApp(firebaseConfig);
+const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-auth.useDeviceLanguage();
-const google = new GoogleAuthProvider();
+const provider = new GoogleAuthProvider();
 
-const Auth = {
+export const Auth = {
     user: null,
-    async signInGoogle(){ await signInWithRedirect(auth, google); },
-    async signUpEmail(email, pass){ return createUserWithEmailAndPassword(auth, email, pass); },
-    async signInEmail(email, pass){ return signInWithEmailAndPassword(auth, email, pass); },
-    async signOut(){ await signOut(auth); },
-    onChanged(cb){ document.addEventListener("auth-changed", e => cb?.(e.detail)); },
+    async signIn() {
+        await signInWithPopup(auth, provider);
+    },
+    async signOut() {
+        await signOut(auth);
+    },
+    async idToken() {
+        if (!auth.currentUser) return "";
+        return await getIdToken(auth.currentUser, /*forceRefresh*/ true);
+    },
+    onChange(cb){
+        return onAuthStateChanged(auth, (u)=>{
+            this.user = u || null;
+            cb(u || null);
+        });
+    }
 };
-window.Auth = Auth;
 
-getRedirectResult(auth).catch(()=>{ /* ignore */ });
-
-onAuthStateChanged(auth, (u)=>{
-    Auth.user = u ? {
-        uid: u.uid,
-        email: u.email || "",
-        displayName: u.displayName || "",
-        photoURL: u.photoURL || ""
-    } : null;
-
-    document.dispatchEvent(new CustomEvent("auth-changed", { detail: Auth.user }));
-});
+// Зробимо кнопки працюючими, якщо є на сторінці:
+const loginBtn = document.getElementById("loginBtn");
+const logoutBtn = document.getElementById("logoutBtn");
+if (loginBtn) loginBtn.addEventListener("click", ()=>Auth.signIn().catch(console.error));
+if (logoutBtn) logoutBtn.addEventListener("click", ()=>Auth.signOut().catch(console.error));

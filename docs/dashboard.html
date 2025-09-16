@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="uk">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Кабінет — MARKI Secure</title>
+    <link rel="stylesheet" href="/css/styles.css"/>
+</head>
+<body>
+<header class="site-header">
+    <h1>Кабінет</h1>
+    <nav>
+        <a href="/">Головна</a>
+        <a href="#" id="logout">Вихід</a>
+    </nav>
+</header>
+<main class="container">
+    <section>
+        <h2>Мій профіль</h2>
+        <pre id="me"></pre>
+    </section>
+
+    <section>
+        <h2>Продукти</h2>
+        <form id="new-product">
+            <input id="p-title" placeholder="Назва*" required>
+            <input id="p-mfg" placeholder="Дата виготовлення (опц.)">
+            <input id="p-img" placeholder="URL зображення (опц.)">
+            <input id="p-batch" type="number" placeholder="Кількість у партії" value="0">
+            <input id="p-code" placeholder="Унікальний код*" required>
+            <input id="p-price" type="number" placeholder="Ціна, копійки/центи" value="0">
+            <input id="p-brand" type="number" placeholder="Brand ID*" required>
+            <button>Створити</button>
+        </form>
+        <div id="products"></div>
+    </section>
+
+    <section>
+        <h2>Мій гаманець</h2>
+        <div id="wallet"></div>
+    </section>
+</main>
+<script src="/js/app.js"></script>
+<script src="/js/dashboard.js"></script>
+</body>
+</html>

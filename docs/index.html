@@ -1,175 +1,130 @@
 <!doctype html>
 <html lang="uk">
 <head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1"/>
-    <title>MARKI Secure — Demo</title>
-    <link rel="stylesheet" href="styles.css">
-    <!-- порядок: firebase -> auth-ui -> qrcode -> app -->
-    <script type="module" src="firebase.js"></script>
-    <script defer src="auth-ui.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
-    <script defer src="app.js"></script>
-    <script defer src="config.js"></script>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MARKI Secure</title>
+    <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-<div class="app">
-    <header class="topbar">
-        <div class="brand">
-            <div class="logo"></div>
-            <div class="name">
-                <h1>MARKI Secure</h1>
-                <p>QR → деталі продукту</p>
+<header class="topbar">
+    <div class="brand">MARKI Secure</div>
+    <nav class="nav">
+        <button class="nav-btn" data-view="profile">Профіль</button>
+        <button class="nav-btn" data-view="user">Користувач</button>
+        <button class="nav-btn" data-view="company">Компанія</button>
+        <button class="nav-btn" data-view="admin">Адмін</button>
+        <button id="loginBtn" class="login">Увійти з Google</button>
+        <button id="logoutBtn" class="logout" style="display:none">Вийти</button>
+    </nav>
+</header>
+
+<main class="container">
+    <!-- ПОВІДОМЛЕННЯ -->
+    <div id="flash" class="flash" style="display:none"></div>
+
+    <!-- ПРОФІЛЬ -->
+    <section id="view-profile" class="view">
+        <h2>Профіль</h2>
+        <div id="profileBox" class="card"></div>
+
+        <h3>Мої продукти</h3>
+        <div id="myProducts" class="grid"></div>
+    </section>
+
+    <!-- КОРИСТУВАЧ: створити продукт без бренду -->
+    <section id="view-user" class="view" style="display:none">
+        <h2>Створити продукт (користувач)</h2>
+        <form id="userCreateForm" class="form">
+            <label>
+                Назва
+                <input type="text" name="name" required placeholder="Назва продукту">
+            </label>
+            <label>
+                Дата виготовлення
+                <input type="date" name="manufacturedAt">
+            </label>
+            <label>
+                Посилання на зображення (необов’язково)
+                <input type="url" name="image" placeholder="https://...">
+            </label>
+            <label>
+                Кількість екземплярів
+                <input type="number" name="editionCount" min="1" value="1">
+            </label>
+            <label>
+                Сертифікати (через кому, необов’язково)
+                <input type="text" name="certs" placeholder="ISO9001, CE">
+            </label>
+            <button type="submit">Створити</button>
+        </form>
+
+        <h3>Щойно створено</h3>
+        <div id="userCreateResult" class="grid"></div>
+    </section>
+
+    <!-- КОМПАНІЯ: створити продукт із брендом (авто з власника бренду) -->
+    <section id="view-company" class="view" style="display:none">
+        <h2>Створити продукт (компанія)</h2>
+        <p class="muted">Потрібно мати бренд, прив’язаний до вашого акаунта. Адмін може видати.</p>
+        <form id="companyCreateForm" class="form">
+            <label>
+                Назва
+                <input type="text" name="name" required placeholder="Назва продукту">
+            </label>
+            <label>
+                Дата виготовлення
+                <input type="date" name="manufacturedAt">
+            </label>
+            <label>
+                Посилання на зображення (необов’язково)
+                <input type="url" name="image" placeholder="https://...">
+            </label>
+            <label>
+                Кількість екземплярів
+                <input type="number" name="editionCount" min="1" value="1">
+            </label>
+            <label>
+                Сертифікати (через кому, необов’язково)
+                <input type="text" name="certs" placeholder="ISO9001, CE">
+            </label>
+            <button type="submit">Створити</button>
+        </form>
+
+        <h3>Щойно створено</h3>
+        <div id="companyCreateResult" class="grid"></div>
+    </section>
+
+    <!-- АДМІН -->
+    <section id="view-admin" class="view" style="display:none">
+        <h2>Адмін-панель</h2>
+
+        <div class="card">
+            <h3>Адміни</h3>
+            <div class="row">
+                <button id="bootstrapAdmin">Я — перший адмін</button>
             </div>
+            <form id="grantAdminForm" class="form row">
+                <input type="email" name="email" required placeholder="email користувача">
+                <button type="submit">Додати адміна</button>
+            </form>
+            <div id="adminsList" class="muted"></div>
         </div>
-        <nav class="tabs">
-            <button class="tab active" data-tab="userPane">Користувач</button>
-            <button class="tab" data-tab="manPane">Виробник</button>
 
-            <a class="cartbtn" href="cart.html">🛒 Кошик <span id="cartCount">0</span></a>
-
-            <!-- AUTH UI -->
-            <div class="authbox">
-                <img id="authPhoto" class="avatar" alt="" style="display:none">
-                <span id="authEmail" class="muted" title=""></span>
-                <span id="roleBadges" class="muted small" style="margin-left:6px"></span>
-                <button id="loginBtn"  class="btn">Увійти</button>
-                <button id="logoutBtn" class="btn ghost" style="display:none">Вийти</button>
-                <a id="accountLink" href="account.html" class="btn ghost" style="display:none">Мій акаунт</a>
-
-                <div id="authPanel" class="auth-panel hidden">
-                    <button id="gLogin" class="btn wide">Увійти через Google</button>
-                    <div class="muted small center" style="margin:6px 0">або email</div>
-                    <input id="email" class="auth-input" placeholder="email">
-                    <input id="password" class="auth-input" placeholder="пароль" type="password">
-                    <div class="row" style="gap:8px">
-                        <button id="emailSignIn" class="btn">Вхід</button>
-                        <button id="emailSignUp" class="btn ghost">Реєстрація</button>
-                    </div>
-                    <div id="authErr" class="result bad" style="display:none; margin-top:8px"></div>
-                </div>
-            </div>
-        </nav>
-    </header>
-
-    <main class="container">
-        <!-- Користувач -->
-        <section id="userPane" class="tabpane active">
-            <div class="card">
-                <h2>Створити продукт (Користувач)</h2>
-                <form id="userCreateForm" class="form">
-                    <div class="form-grid">
-                        <div class="field">
-                            <label>Назва*</label>
-                            <input name="name" placeholder="Напр., Organic Milk 1L" required>
-                        </div>
-                        <div class="field">
-                            <label>Дата виготовлення* (YYYY-MM-DD)</label>
-                            <input name="manufacturedAt" placeholder="2025-09-03" required>
-                            <div class="muted small">Обов’язково для користувача</div>
-                        </div>
-                        <div class="field">
-                            <label>Зображення (URL)</label>
-                            <input name="image" placeholder="https://...">
-                        </div>
-                    </div>
-                    <div class="actions">
-                        <button class="btn primary">Створити</button>
-                    </div>
-                </form>
-            </div>
-
-            <div class="card">
-                <h3>Мої товари</h3>
-                <div class="tablewrap">
-                    <table class="table">
-                        <thead>
-                        <tr>
-                            <th>TokenId</th><th>Назва</th><th>Серійний</th><th>Edition</th><th>Стан</th><th>Дії</th>
-                        </tr>
-                        </thead>
-                        <tbody id="userList"><tr><td colspan="6" class="muted">Увійдіть</td></tr></tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
-
-        <!-- Виробник -->
-        <section id="manPane" class="tabpane">
-            <div class="card">
-                <h2>Масове створення (Виробник)</h2>
-                <form id="manCreateForm" class="form">
-                    <div class="form-grid">
-                        <div class="field">
-                            <label>Назва*</label>
-                            <input name="name" required placeholder="Coke Zero 330ml">
-                        </div>
-                        <div class="field">
-                            <label>Кількість (1–100)</label>
-                            <input name="qty" type="number" min="1" max="100" value="1">
-                        </div>
-                        <div class="field">
-                            <label>Бренд (slug або назва)</label>
-                            <input name="brand" placeholder="COCA-COLA">
-                            <div class="muted small">Галочка з’явиться, якщо бренд верифікований</div>
-                        </div>
-                        <div class="field">
-                            <label>Base serial (необов’язково)</label>
-                            <input name="serial" placeholder="COKE-ZERO-330ML">
-                            <div class="muted small">Буде: COKE-ZERO-330ML-001, 002, …</div>
-                        </div>
-                        <div class="field">
-                            <label>Дата виготовлення</label>
-                            <input name="manufacturedAt" placeholder="2025-09-03">
-                        </div>
-                        <div class="field">
-                            <label>IPFS Hash (необов’язково)</label>
-                            <input name="ipfsHash" placeholder="...">
-                        </div>
-                        <div class="field">
-                            <label>Зображення (URL)</label>
-                            <input name="image" placeholder="https://...">
-                        </div>
-                    </div>
-                    <div class="actions">
-                        <button class="btn primary">Створити партію</button>
-                    </div>
-                </form>
-            </div>
-
-            <div class="card">
-                <h3>Всі продукти</h3>
-                <div class="tablewrap">
-                    <table class="table">
-                        <thead>
-                        <tr>
-                            <th>TokenId</th><th>Назва</th><th>Серійний</th>
-                            <th>Edition</th><th>Бренд</th><th>Стан</th><th>Дії</th>
-                        </tr>
-                        </thead>
-                        <tbody id="manList"><tr><td colspan="7" class="muted">Увійдіть як виробник</td></tr></tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
-    </main>
-
-    <footer class="footer">© 2025 MARKI Secure (Demo)</footer>
-</div>
-
-<!-- QR модал -->
-<div id="qrModal" class="qr-panel" role="dialog" aria-modal="true">
-    <div class="qr-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <div class="mono" id="qrTitle">QR</div>
-            <button id="qrClose" class="btn">Закрити</button>
+        <div class="card">
+            <h3>Створити бренд на email</h3>
+            <form id="createBrandForUserForm" class="form row">
+                <input type="text" name="name" required placeholder="Назва бренду">
+                <input type="email" name="email" required placeholder="email власника бренду">
+                <button type="submit">Створити</button>
+            </form>
         </div>
-        <div id="qrNode"></div>
-        <div class="row" style="margin-top:10px;gap:8px">
-            <button id="qrDownload" class="btn">Завантажити PNG</button>
-            <button id="qrCopyUrl" class="btn ghost">Скопіювати URL</button>
-        </div>
-    </div>
-</div>
+    </section>
+</main>
+
+<script type="module" src="/qrcode.min.js"></script>
+<script type="module" src="/firebase.js"></script>
+<script type="module" src="/app.js"></script>
+<script type="module" src="/main.js"></script>
 </body>
 </html>

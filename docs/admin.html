@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="uk">
+<head>
+    <meta charset="utf-8" />
+    <title>MARKI Secure — Адмін</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="stylesheet" href="./style.css" />
+    <!-- Firebase SDK -->
+    <script type="module" src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js"></script>
+    <script type="module" src="https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js"></script>
+</head>
+<body>
+<header class="topbar">
+    <div class="brand">Адмін-панель</div>
+    <nav class="nav">
+        <a href="./index.html">Головна</a>
+        <button id="logoutBtn">Вийти</button>
+    </nav>
+</header>
+
+<main class="container">
+    <section class="card">
+        <h2>Я</h2>
+        <div id="meInfo">Перевірка ролей…</div>
+    </section>
+
+    <section class="card">
+        <h3>Видати права адміна</h3>
+        <form id="grantAdminForm" class="grid">
+            <label>
+                Email користувача
+                <input name="email" type="email" required placeholder="user@example.com" />
+            </label>
+            <button type="submit">Надати права адміна</button>
+        </form>
+        <div id="grantOut" class="mt"></div>
+    </section>
+
+    <section class="card">
+        <h3>Створити компанію користувачу</h3>
+        <form id="createBrandForUserForm" class="grid">
+            <label>
+                Назва компанії
+                <input name="name" required placeholder="Назва бренду" />
+            </label>
+            <label>
+                Email власника компанії
+                <input name="email" type="email" required placeholder="owner@example.com" />
+            </label>
+            <button type="submit">Створити</button>
+        </form>
+        <div id="brandCreateOut" class="mt"></div>
+    </section>
+
+    <section class="card">
+        <h3>Верифікувати бренд</h3>
+        <form id="verifyBrandForm" class="grid">
+            <label>
+                Slug бренду (наприклад, TRILL)
+                <input name="slug" required placeholder="BRAND-SLUG" />
+            </label>
+            <button type="submit">Верифікувати</button>
+        </form>
+        <div id="verifyOut" class="mt"></div>
+    </section>
+</main>
+
+<script type="module" src="./firebase.js"></script>
+<script type="module" src="./app.js"></script>
+<script type="module" src="./admin.js"></script>
+</body>
+</html>

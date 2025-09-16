@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="uk">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Деталі продукту — MARKI Secure</title>
+    <link rel="stylesheet" href="/css/styles.css"/>
+</head>
+<body>
+<main class="container">
+    <h1>Продукт</h1>
+    <div id="product"></div>
+</main>
+<script>
+    (async function(){
+        const code = location.pathname.split('/').pop();
+        const res = await fetch('/api/public/product?code='+encodeURIComponent(code));
+        const p = res.ok ? await res.json() : null;
+        const el = document.getElementById('product');
+        if (!p || !p.code) { el.textContent = 'Не знайдено'; return; }
+        el.innerHTML = `
+    <article class="card">
+      <img src="${p.image_url || ''}" alt=""/>
+      <h3>${p.title}</h3>
+      <p><b>Код:</b> ${p.code}</p>
+      <p><b>Дата виготовлення:</b> ${p.mfg_date || '—'}</p>
+      <p><b>Ціна:</b> ${(p.price_cents||0)/100} €</p>
+      <p><b>QR:</b> <img alt="QR" src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(location.href)}"></p>
+    </article>`;
+    })();
+</script>
+</body>
+</html>
