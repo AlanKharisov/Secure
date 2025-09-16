@@ -48,9 +48,9 @@ async function loadDetails() {
     box.appendChild(qrWrap);
 
     // Згенерувати QR (fallback без сторонніх скриптів)
-    const qrTarget = data.publicUrl || location.href;
+    const qrTarget = `${location.origin}/details.html?id=${encodeURIComponent(data.tokenId)}`;
     makeQR(qs("#qrBox"), qrTarget, 220);
-
+    
     // Кнопки дій
     actions.innerHTML = "";
     if (data.canAcquire) {
