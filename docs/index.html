@@ -121,11 +121,14 @@
         </div>
     </section>
 </main>
-
+<!-- Firebase -->
 <script type="module" src="/firebase.js"></script>
-<script type="module" src="/app.js"></script>
-<script src="qrcode.min.js"></script>
-<script type="module" src="main.js"></script>
 
+<!-- Спочатку бібліотека QR-коду (без type="module") -->
+<script src="qrcode.min.js"></script>
+
+<!-- Потім твоя логіка -->
+<script type="module" src="/app.js"></script>
+<script type="module" src="main.js"></script>
 </body>
 </html>
