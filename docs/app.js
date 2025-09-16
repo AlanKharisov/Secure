@@ -52,12 +52,32 @@ export function flash(msg, ms=3000) {
     setTimeout(()=> box.style.display="none", ms);
 }
 
-/** QR helper (qrcode.min.js додає глобальний QRCode) */
-export function makeQR(el, text, size=180) {
-    el.innerHTML = "";
-    /* global QRCode */
-    new QRCode(el, { text, width:size, height:size, correctLevel: QRCode.CorrectLevel.M });
+export function makeQR(el, text, size = 148) {
+  if (!el) return;
+
+  // очистити контейнер перед рендером
+  while (el.firstChild) el.removeChild(el.firstChild);
+
+  // якщо з якоїсь причини бібліотека не підвантажилась — даємо посилання
+  if (typeof window.QRCode !== 'function') {
+    const a = document.createElement('a');
+    a.href = String(text || '');
+    a.textContent = String(text || '');
+    a.rel = 'noopener noreferrer';
+    a.target = '_blank';
+    el.appendChild(a);
+    console.warn('QRCode library is not loaded — rendered a link instead');
+    return;
+  }
+
+  new window.QRCode(el, {
+    text: String(text || ''),
+    width: size,
+    height: size,
+    correctLevel: window.QRCode.CorrectLevel.M,
+  });
 }
+
 
 /** збереження canvas як PNG */
 export function downloadCanvasPng(canvas, filename="qr.png") {
