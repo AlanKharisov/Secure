@@ -52,32 +52,76 @@ export function flash(msg, ms=3000) {
     setTimeout(()=> box.style.display="none", ms);
 }
 
-export function makeQR(el, text, size = 148) {
+/** QR helper (без локальної qrcode.min.js) */
+export function makeQR(el, text, size = 180) {
   if (!el) return;
+  el.innerHTML = "";
 
-  // очистити контейнер перед рендером
-  while (el.firstChild) el.removeChild(el.firstChild);
+  const data = String(text || "");
+  const s = Math.max(96, Number(size) || 180);
 
-  // якщо з якоїсь причини бібліотека не підвантажилась — даємо посилання
-  if (typeof window.QRCode !== 'function') {
-    const a = document.createElement('a');
-    a.href = String(text || '');
-    a.textContent = String(text || '');
-    a.rel = 'noopener noreferrer';
-    a.target = '_blank';
-    el.appendChild(a);
-    console.warn('QRCode library is not loaded — rendered a link instead');
+  // Якщо раптом глобальна бібліотека є — використай її
+  if (typeof window !== "undefined" && typeof window.QRCode === "function") {
+    new window.QRCode(el, {
+      text: data,
+      width: s,
+      height: s,
+      correctLevel: window.QRCode.CorrectLevel.M,
+    });
     return;
   }
 
-  new window.QRCode(el, {
-    text: String(text || ''),
-    width: size,
-    height: size,
-    correctLevel: window.QRCode.CorrectLevel.M,
-  });
-}
+  // Fallback: PNG з публічного сервісу
+  const src = `https://api.qrserver.com/v1/create-qr-code/?size=${s}x${s}&data=${encodeURIComponent(data)}`;
 
+  const img = document.createElement("img");
+  img.alt = "QR";
+  img.width = s;
+  img.height = s;
+  img.loading = "lazy";
+  img.decoding = "async";
+  img.src = src;
+  img.style.display = "block";
+
+  // Посилання для відкриття в новій вкладці (звідти можна зберегти)
+  const open = document.createElement("a");
+  open.href = src;
+  open.target = "_blank";
+  open.rel = "noopener";
+  open.textContent = "Відкрити QR у новій вкладці";
+  open.className = "btn mt";
+
+  // Спроба зробити «Завантажити» (може не спрацювати, якщо CORS блочить)
+  const save = document.createElement("button");
+  save.className = "btn mt";
+  save.textContent = "Завантажити QR (PNG)";
+  save.addEventListener("click", async () => {
+    try {
+      const image = new Image();
+      image.crossOrigin = "anonymous";
+      image.src = src;
+      await new Promise((res, rej) => {
+        image.onload = res; image.onerror = rej;
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = s; canvas.height = s;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(image, 0, 0, s, s);
+      const dataUrl = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = "qr.png";
+      a.click();
+    } catch {
+      // якщо не вийшло — відкриємо у вкладці
+      open.click();
+    }
+  });
+
+  el.appendChild(img);
+  el.appendChild(open);
+  el.appendChild(save);
+}
 
 /** збереження canvas як PNG */
 export function downloadCanvasPng(canvas, filename="qr.png") {
