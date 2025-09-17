@@ -640,60 +640,71 @@ func main() {
 		})
 	})
 
-	// API
+	// ===== API (обгорнуто CORS) =====
 	mux.HandleFunc("/api/me", withCORS(handleMe))
+
+	// admins
 	mux.HandleFunc("/api/admins", withCORS(adminsList))
 	mux.HandleFunc("/api/admins/bootstrap", withCORS(adminBootstrap))
 	mux.HandleFunc("/api/admins/grant", withCORS(adminGrant))
 	mux.HandleFunc("/api/admins/create-manufacturer", withCORS(adminCreateManufacturerForUser))
+
+	// manufacturers
 	mux.HandleFunc("/api/manufacturers", withCORS(manufacturerCreateOrList))
 	mux.HandleFunc("/api/manufacturers/", withCORS(manufacturerGetOrVerify))
+
+	// products (user/company create + my list + actions)
 	mux.HandleFunc("/api/user/products", withCORS(userCreateProduct))
 	mux.HandleFunc("/api/manufacturer/products", withCORS(companyCreateProduct))
 	mux.HandleFunc("/api/products", withCORS(productsList))
 	mux.HandleFunc("/api/products/", withCORS(productActions))
+
+	// verification
 	mux.HandleFunc("/api/verify/", withCORS(verifyProduct))
 
-	// static
-	root := "./docs"
-	if v := os.Getenv("DOCS_DIR"); v != "" {
-		root = v
+	// ===== Статика =====
+	root := os.Getenv("DOCS_DIR")
+	if root == "" {
+		root = "./docs"
 	}
-	// MIME для Windows/Render
+
+	// Коректні MIME (особливо на Windows/Render)
 	_ = mime.AddExtensionType(".css", "text/css; charset=utf-8")
 	_ = mime.AddExtensionType(".js", "application/javascript; charset=utf-8")
 	_ = mime.AddExtensionType(".mjs", "application/javascript; charset=utf-8")
 	_ = mime.AddExtensionType(".map", "application/json; charset=utf-8")
 
-	mux.Handle("/", http.FileServer(http.Dir(root)))
-	log.Println("Serving static from", root)
+	// Обгортаємо file server безпосередньо у withSecurityHeaders
+	mux.Handle("/", withSecurityHeaders(http.FileServer(http.Dir(root))))
 
+	// ===== Старт сервера =====
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "5000"
 	}
 	addr := ":" + port
 
-	// 🔒 ДОДАЛИ глобальні security headers для всіх маршрутів
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: withSecurityHeaders(mux),
-	}
+	log.Println("Serving static from", root)
+	log.Println("MARKI Secure running at", addr, "PUBLIC_BASE=", publicBase)
 
-	log.Println("MARKI Secure (Firestore-only) running at", addr, "PUBLIC_BASE=", publicBase)
-	log.Fatal(srv.ListenAndServe())
+	// Якщо хочеш — можна також обгорнути ВСЕ mux у withSecurityHeaders ще раз:
+	// srv := &http.Server{ Addr: addr, Handler: withSecurityHeaders(mux) }
+	// log.Fatal(srv.ListenAndServe())
+
+	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
-// ДОДАЙ поза main()
+// поза main()
 func withSecurityHeaders(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Дозволяє popups (Firebase popup/redirect не ламається)
+		// Дозволяє роботу попапів (Firebase Google Sign-In)
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
-		// Не вмикаємо COEP, щоб сторонні скрипти не ламались
+		// COEP не вмикаємо, щоб не блочити gstatic/google-скрипти
 		w.Header().Set("Cross-Origin-Embedder-Policy", "unsafe-none")
 		h.ServeHTTP(w, r)
 	})
 }
+
 
 // ====== handlers ======
 
