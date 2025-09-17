@@ -212,7 +212,8 @@ function setupAuth() {
     }
   });
 
-  loginBtn.addEventListener("click", () => Auth.signIn());   // <-- правильно
+  // ⬇️ було: Auth.signInWithGoogle()
+  loginBtn.addEventListener("click", () => Auth.signIn());
   logoutBtn.addEventListener("click", () => Auth.signOut());
 }
 
