@@ -1,37 +1,30 @@
 <!doctype html>
 <html lang="uk">
 <head>
-    <meta charset="utf-8" />
-    <title>MARKI Secure — Перевірка</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <link rel="stylesheet" href="./style.css" />
-    <!-- Firebase SDK -->
-    <script type="module" src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js"></script>
-    <script type="module" src="https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js"></script>
+  <meta charset="utf-8" />
+  <title>MARKI Secure — Перевірка</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
 <header class="topbar">
-    <div class="brand">Перевірка продукту</div>
-    <nav class="nav">
-        <a href="./index.html">Головна</a>
-        <button id="loginBtn">Увійти</button>
-        <button id="logoutBtn" class="hidden">Вийти</button>
-    </nav>
+  <div class="brand">Перевірка продукту</div>
+  <nav class="nav">
+    <a href="/index.html">Головна</a>
+    <button id="loginBtn">Увійти</button>
+    <button id="logoutBtn" class="hidden">Вийти</button>
+  </nav>
 </header>
 
 <main class="container">
-    <section class="card">
-        <div id="details">Завантаження…</div>
-        <div id="actions" class="mt"></div>
-    </section>
+  <section class="card">
+    <div id="details">Завантаження…</div>
+    <div id="actions" class="mt"></div>
+  </section>
 </main>
-<script type="module" src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js"></script>
-<script type="module" src="https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js"></script>
-    
-<!-- Далі модулі -->
-<script type="module" src="./firebase.js"></script>
-<script type="module" src="./app.js"></script>
-<script type="module" src="./details.js"></script>
-<script type="module" src="./main.js"></script>
+
+<script type="module" src="/firebase.js"></script>
+<script type="module" src="/app.js"></script>
+<script type="module" src="/details.js"></script>
 </body>
 </html>
