@@ -1,76 +1,81 @@
-// details.js
-import { api, qs, h, flash, makeQR } from "./app.js";
+import { api, qs, flash, makeQR, productUrl } from "./app.js";
 
-async function loadDetails() {
+function renderDetails(data) {
   const box = qs("#details");
   const actions = qs("#actions");
-  const url = new URL(location.href);
-  const id = url.searchParams.get("id");
+  box.innerHTML = "";
+  actions.innerHTML = "";
 
-  if (!id) {
-    box.textContent = "Невірне посилання (немає id).";
-    return;
-  }
+  box.append(
+    ...(data.metadata?.image ? [(() => {
+      const img = document.createElement("img");
+      img.src = data.metadata.image;
+      img.alt = data.metadata.name || "Зображення";
+      img.className = "cover";
+      return img;
+    })()] : []),
+    (() => {
+      const div = document.createElement("div");
+      div.className = "meta";
+      div.textContent = data.metadata?.name || "Без назви";
+      return div;
+    })(),
+    (() => {
+      const div = document.createElement("div");
+      div.className = "meta";
+      div.textContent = `Вироблено: ${data.metadata?.manufacturedAt || "—"}`;
+      return div;
+    })(),
+    (() => {
+      const div = document.createElement("div");
+      div.className = "meta";
+      div.textContent = `Статус: ${data.state}`;
+      return div;
+    })(),
+    (() => {
+      const div = document.createElement("div");
+      div.className = "meta";
+      div.textContent = `Токен: #${data.tokenId} (${data.editionNo}/${data.editionTotal})`;
+      return div;
+    })()
+  );
 
-  box.textContent = "Завантаження…";
-  try {
-    const data = await api(`/api/verify/${encodeURIComponent(id)}`);
+  // QR на цю ж сторінку
+  const qrBox = document.createElement("div");
+  qrBox.className = "qr";
+  const target = productUrl(data.tokenId);
+  makeQR(qrBox, target, 220);
+  box.append(qrBox);
 
-    const meta = data.metadata || {};
-    const rows = [
-      ["ID", String(data.tokenId)],
-      ["Стан", String(data.state)],
-      ["Назва", meta.name || "—"],
-      ["Дата", meta.manufacturedAt || "—"],
-      ["Едіція", data.editionNo && data.editionTotal ? `${data.editionNo}/${data.editionTotal}` : "—"],
-      ["Бренд", data.brandSlug || "—"],
-      ["Серійний", meta.serial || (data.scope === "full" ? "(порожньо)" : "— приховано —")],
-      ["Публічна URL", data.publicUrl || "—"]
-    ];
-
-    const table = h("div", { class: "kv" },
-      ...rows.map(([k,v]) =>
-        h("div", { class:"kv-row" },
-          h("div", { class:"kv-k" }, k),
-          h("div", { class:"kv-v" }, v)
-        )
-      )
-    );
-
-    // QR секція
-    const qrWrap = h("div", { class:"mt" },
-      h("h3", null, "QR на сторінку цього продукту"),
-      h("div", { id:"qrBox", class:"qrbox" })
-    );
-
-    box.innerHTML = "";
-    box.appendChild(table);
-    box.appendChild(qrWrap);
-
-    // Згенерувати QR (fallback без сторонніх скриптів)
-    const qrTarget = `${location.origin}/details.html?id=${encodeURIComponent(data.tokenId)}`;
-    makeQR(qs("#qrBox"), qrTarget, 220);
-    
-    // Кнопки дій
-    actions.innerHTML = "";
-    if (data.canAcquire) {
-      const btn = h("button", { class:"btn" }, "Отримати собі");
-      btn.addEventListener("click", async () => {
-        try {
-          const res = await api(`/api/products/${encodeURIComponent(data.tokenId)}/purchase`, { method:"POST" });
-          flash("Успіх! Тепер продукт закріплено за вами.");
-          setTimeout(() => location.reload(), 800);
-        } catch (e) {
-          flash(e.message || "Помилка покупки", "err");
-        }
-      });
-      actions.appendChild(btn);
-    } else {
-      actions.appendChild(h("div", { class:"muted" }, "Цей продукт вже належить вам або покупка недоступна."));
-    }
-  } catch (e) {
-    box.textContent = e.message || "Помилка завантаження.";
+  // Кнопка «Придбати/Забрати», якщо бек дозволяє
+  if (data.canAcquire) {
+    const btn = document.createElement("button");
+    btn.textContent = "Забрати продукт собі";
+    btn.addEventListener("click", async () => {
+      try {
+        const res = await api(`/api/products/${data.tokenId}/purchase`, { method: "POST" });
+        flash("Готово!");
+        location.reload();
+      } catch (e) {
+        flash(e.message);
+      }
+    });
+    actions.append(btn);
   }
 }
 
-loadDetails();
+async function init() {
+  const url = new URL(location.href);
+  const id = url.searchParams.get("id");
+  if (!id) {
+    qs("#details").textContent = "Не передано id";
+    return;
+  }
+  try {
+    const data = await api(`/api/verify/${encodeURIComponent(id)}`);
+    renderDetails(data);
+  } catch (e) {
+    qs("#details").textContent = e.message;
+  }
+}
+init();
