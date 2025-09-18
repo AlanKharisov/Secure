@@ -56,7 +56,7 @@ export function productUrl(tokenId) {
   return `${location.origin}/details.html?id=${encodeURIComponent(tokenId)}`;
 }
 
-/** QR helper (без локальної qrcode.min.js) */
+/** QR helper: якщо є глобальна QRCode — використає її; інакше CDN fallback у main.js не потрібен */
 export function makeQR(el, text, size = 180) {
   if (!el) return;
   el.innerHTML = "";
@@ -64,7 +64,6 @@ export function makeQR(el, text, size = 180) {
   const data = String(text || "");
   const s = Math.max(96, Number(size) || 180);
 
-  // Якщо раптом глобальна бібліотека є — використай її
   if (typeof window !== "undefined" && typeof window.QRCode === "function") {
     new window.QRCode(el, {
       text: data,
@@ -75,7 +74,7 @@ export function makeQR(el, text, size = 180) {
     return;
   }
 
-  // Fallback: PNG з публічного сервісу (CORS-safe)
+  // fallback: png з сервісу
   const src = `https://api.qrserver.com/v1/create-qr-code/?size=${s}x${s}&data=${encodeURIComponent(data)}`;
 
   const img = document.createElement("img");
@@ -87,49 +86,7 @@ export function makeQR(el, text, size = 180) {
   img.src = src;
   img.style.display = "block";
 
-  // Лінк на відкриття в новій вкладці (можна зберегти правою кнопкою)
-  const open = document.createElement("a");
-  open.href = src;
-  open.target = "_blank";
-  open.rel = "noopener";
-  open.textContent = "Відкрити QR у новій вкладці";
-  open.className = "btn mt";
-
-  // Кнопка «Завантажити QR»
-  const save = document.createElement("button");
-  save.className = "btn mt";
-  save.textContent = "Завантажити QR (PNG)";
-  save.addEventListener("click", async () => {
-    try {
-      const image = new Image();
-      image.crossOrigin = "anonymous";
-      image.src = src;
-      await new Promise((res, rej) => { image.onload = res; image.onerror = rej; });
-      const canvas = document.createElement("canvas");
-      canvas.width = s; canvas.height = s;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(image, 0, 0, s, s);
-      const dataUrl = canvas.toDataURL("image/png");
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      a.download = "qr.png";
-      a.click();
-    } catch {
-      open.click();
-    }
-  });
-
   el.appendChild(img);
-  el.appendChild(open);
-  el.appendChild(save);
-}
-
-/** збереження canvas як PNG (якщо десь потрібно) */
-export function downloadCanvasPng(canvas, filename = "qr.png") {
-  const link = document.createElement("a");
-  link.download = filename;
-  link.href = canvas.toDataURL("image/png");
-  link.click();
 }
 
 export { Auth };
