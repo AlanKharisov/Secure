@@ -52,31 +52,47 @@ function logAuthError(where, err) {
 export const Auth = {
   user: null,
 
+ let signingIn = false;
+
+export const Auth = {
+  user: null,
+
   async signIn() {
+    if (signingIn) {
+      console.log("[Auth] signIn skipped: already in progress");
+      return;
+    }
+    signingIn = true;
     console.log("[Auth] signIn() start (popup)…");
     try {
       await signInWithPopup(auth, provider);
       console.log("[Auth] popup success");
-      return;
     } catch (err) {
-      const code = logAuthError("popup", err);
+      const code = err?.code || "";
+      console.warn("[Auth] popup error:", code, err?.message || err);
 
-      // Типові кейси, коли краще впасти у redirect:
+      // Автоматичний fallback у redirect для типових кейсів
       const shouldFallback =
         code === "auth/popup-blocked" ||
         code === "auth/operation-not-supported-in-this-environment" ||
-        code === "auth/unauthorized-domain"; // домен не в Authorized domains
+        code === "auth/unauthorized-domain";
 
       if (shouldFallback) {
         console.log("[Auth] falling back to redirect…");
         await signInWithRedirect(auth, provider);
-        return; // Далі окуляр повернеться через getRedirectResult
+      } else if (code !== "auth/cancelled-popup-request") {
+        // цю помилку якраз спричиняють дубль-виклики; інші — покажемо
+        alert(`Не вдалось увійти: ${code || err?.message || err}`);
       }
-
-      // Інші помилки прокидаємо далі — побачиш у консолі
-      throw err;
+    } finally {
+      signingIn = false;
     }
   },
+
+  async signOut() { /* як було */ },
+  async idToken() { /* як було */ },
+  onChange(cb) { /* як було */ },
+};
 
   async signOut() {
     console.log("[Auth] signOut()");
