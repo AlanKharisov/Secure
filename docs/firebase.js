@@ -1,4 +1,4 @@
-// firebase.js — Google Sign-In через POPUP + fallback REDIRECT
+// firebase.js — Google Sign-In (Popup + fallback Redirect) + Storage upload helper
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
 import {
   getAuth,
@@ -10,11 +10,14 @@ import {
   signOut as fbSignOut,
   getIdToken,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
+import {
+  getStorage, ref as sRef, uploadBytes, getDownloadURL
+} from "https://www.gstatic.com/firebasejs/10.12.4/firebase-storage.js";
 
-// ⚠️ Конфіг з Firebase console → Project settings → General → Your apps → SDK setup
+// ⚠️ Project settings → SDK setup
 const firebaseConfig = {
   apiKey: "AIzaSyBknpQ46_NXV0MisgfjZ7Qs-XS9jhn7hws",
-  authDomain: "fir-d9f54.firebaseapp.com",          // має точно збігатися
+  authDomain: "fir-d9f54.firebaseapp.com",
   projectId: "fir-d9f54",
   storageBucket: "fir-d9f54.firebasestorage.app",
   messagingSenderId: "797519127919",
@@ -25,6 +28,8 @@ const firebaseConfig = {
 console.log("[Auth] init firebase…");
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const storage = getStorage(app);
+
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
 
@@ -47,8 +52,6 @@ export const Auth = {
     } catch (err) {
       const code = err?.code || "";
       console.warn("[Auth] popup error:", code, err?.message || err);
-
-      // Якщо браузер блокує popup — fallback на redirect
       if (
         code === "auth/popup-blocked" ||
         code === "auth/operation-not-supported-in-this-environment" ||
@@ -81,11 +84,24 @@ export const Auth = {
   },
 };
 
-// Після повернення з редіректу (якщо був) — нічого не ламає
+// Після повернення з редіректу (якщо був) — не ламає flow
 getRedirectResult(auth).catch((err) => {
   if (err) console.warn("[Auth] redirect result:", err.message || err);
 });
 
-// Прив’язуємо кнопки один раз (ніяких дубль-викликів у main.js)
+// Прив’язуємо кнопки
 document.getElementById("loginBtn")?.addEventListener("click", () => Auth.signIn());
 document.getElementById("logoutBtn")?.addEventListener("click", () => Auth.signOut());
+
+/** Upload helper → Firebase Storage. Повертає public URL. */
+export async function uploadFile(file, pathPrefix = "brand_proofs") {
+  if (!file) throw new Error("Файл не обрано");
+  const uid = Auth.user?.uid || "anon";
+  const ext = (file.name.split(".").pop() || "bin").toLowerCase();
+  const ts = Date.now();
+  const path = `${pathPrefix}/${uid}/${ts}.${ext}`;
+  const ref = sRef(storage, path);
+  await uploadBytes(ref, file, { contentType: file.type || "application/octet-stream" });
+  const url = await getDownloadURL(ref);
+  return { path, url };
+}
