@@ -211,10 +211,6 @@ function setupAuth() {
       qs("#myProducts").innerHTML = "";
     }
   });
-
-  // ⬇️ було: Auth.signInWithGoogle()
-  loginBtn.addEventListener("click", () => Auth.signIn());
-  logoutBtn.addEventListener("click", () => Auth.signOut());
 }
 
 /** ——— init ——— */
