@@ -1,358 +1,165 @@
-import { API, Auth, api, qs, qsa, h, flash, makeQR, productUrl } from "./app.js";
-import { uploadFile } from "./firebase.js";
+// main.js — ініціалізація UI, рендер профілю/брендів/партій/продуктів
+import { Auth } from "./firebase.js";
+import { api } from "./app.js";
 
-/** Навігація */
-function setView(view) {
-  qsa(".view").forEach(v => (v.style.display = "none"));
-  const el = qs(`#view-${view}`);
-  if (el) el.style.display = "block";
-  qsa(".nav-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.view === view));
+const qs = (s, r = document) => r.querySelector(s);
+const qsa = (s, r = document) => Array.from(r.querySelectorAll(s));
+
+// ——— UI helpers ———
+function setText(sel, text) {
+  const el = qs(sel);
+  if (el) el.textContent = text ?? "";
+}
+function setHTML(sel, html) {
+  const el = qs(sel);
+  if (el) el.innerHTML = html ?? "";
+}
+function show(sel, yes = true) {
+  const el = qs(sel);
+  if (el) el.style.display = yes ? "" : "none";
 }
 
-function setupNav() {
-  qsa(".nav-btn").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));
-}
+// ——— Рендер продуктів ———
+function renderProducts(items) {
+  const box = qs("#myProducts");
+  if (!box) return;
 
-/** Профіль + список продуктів */
-async function loadProfile() {
-  const me = await api("/api/me");
-  const box = qs("#profileBox");
-  box.innerHTML = "";
-
-  box.append(
-    h("div", { class: "meta" }, `Email: ${me.email}`),
-    h("div", { class: "meta" }, `Адмін: ${me.isAdmin ? "так" : "ні"}`),
-    h("div", { class: "meta" }, `Має компанію: ${me.isManufacturer ? "так" : "ні"}`),
-    h("div", { class: "meta" }, "Бренди: ", (me.brands || []).map(b => `${b.name} (${b.slug})`).join(", ") || "—"),
-    me.companyApplicationStatus ? h("div", { class: "meta" }, `Статус заявки: ${me.companyApplicationStatus}`) : null
-  );
-
-  // якщо нема компанії і нема pending-статусу — покажемо питання про роль
-  if (!me.isManufacturer && !me.companyApplicationStatus) {
-    setView("role");
-  }
-
-  await loadMyProducts();
-}
-
-async function loadMyProducts() {
-  const grid = qs("#myProducts");
-  grid.innerHTML = "";
-  let list = [];
-  try {
-    list = await api("/api/products");
-  } catch (e) {
-    grid.append(h("div", { class: "muted" }, String(e.message)));
+  if (!items.length) {
+    box.innerHTML = `<div class="empty">Немає продуктів</div>`;
     return;
   }
+
+  box.innerHTML = items.map(p => `
+    <div class="card">
+      <div class="row">
+        <strong>#${p.tokenId}</strong>
+        <span>${p.meta?.name || ""}</span>
+      </div>
+      <div class="muted">
+        SKU: ${p.sku || "—"} · Вид. ${p.editionNo || 1}/${p.editionTotal || 1}
+      </div>
+      <div class="muted">
+        Стан: ${p.state || "created"}
+      </div>
+      ${p.publicUrl ? `<a href="${p.publicUrl}" target="_blank" rel="noopener">Деталі</a>` : ""}
+    </div>
+  `).join("");
+}
+
+// ——— Рендер партій (для виробника) ———
+function renderBatches(list) {
+  const box = qs("#batchesBox");
+  if (!box) return;
   if (!list.length) {
-    grid.append(h("div", { class: "muted" }, "Ще немає продуктів."));
+    box.innerHTML = `<div class="empty">Партій ще немає</div>`;
     return;
   }
-  for (const p of list) grid.append(productCard(p, { showQR: true }));
+  box.innerHTML = list.map(b => `
+    <div class="row">
+      <strong>${b.title}</strong>
+      <span class="muted">#${b.id}</span>
+    </div>
+  `).join("");
 }
 
-function productCard(p, opts = {}) {
-  const url = productUrl(p.tokenId);
-  const qrBox = h("div", { class: "qr" });
-  if (opts.showQR) makeQR(qrBox, url, 160);
-
-  const copyBtn = h("button", {
-    class: "copy btn",
-    onclick() { navigator.clipboard.writeText(String(p.tokenId)); flash("tokenId скопійовано"); },
-  }, "Скопіювати tokenId");
-
-  const openBtn = h("a", { href: url, target: "_blank", class: "copy btn" }, "Відкрити сторінку");
-
-  return h("div", { class: "product-card" },
-    h("div", { class: "row" },
-      h("span", { class: "badge" }, p.state || "—"),
-      p.brandSlug ? h("span", { class: "badge" }, p.brandSlug) : null,
-      h("span", { class: "badge" }, `#${p.tokenId}`),
-      h("span", { class: "badge" }, `${p.editionNo}/${p.editionTotal}`),
-      p.sku ? h("span", { class: "badge" }, `SKU ${p.sku}`) : null,
-      p.batchId ? h("span", { class: "badge" }, `batch ${p.batchId}`) : null
-    ),
-    h("div", { class: "meta" }, p.meta?.name || p.name || "Без назви"),
-    h("div", { class: "meta" }, `Виготовлено: ${p.meta?.manufacturedAt || p.manufacturedAt || "—"}`),
-    h("div", { class: "meta" }, `Власник: ${p.owner || "—"}`),
-    opts.showQR ? qrBox : null,
-    h("div", { class: "row" }, copyBtn, openBtn)
-  );
-}
-
-/** ——— питання про роль / заявка ——— */
-function setupRoleAndApply() {
-  qs("#btnRoleNo")?.addEventListener("click", () => setView("profile"));
-  qs("#btnRoleYes")?.addEventListener("click", () => setView("apply"));
-  qs("#applyBack")?.addEventListener("click", () => setView("role"));
-
-  const form = qs("#companyApplyForm");
-  const out = qs("#applyOut");
-  form?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    out.textContent = "Надсилання…";
-
-    try {
-      const fd = new FormData(form);
-      const payload = {
-        fullName: (fd.get("fullName") || "").toString().trim(),
-        contactEmail: (fd.get("contactEmail") || "").toString().trim().toLowerCase(),
-        legalName: (fd.get("legalName") || "").toString().trim(),
-        brandName: (fd.get("brandName") || "").toString().trim(),
-        country: (fd.get("country") || "").toString().trim(),
-        vat: (fd.get("vat") || "").toString().trim(),
-        regNumber: (fd.get("regNumber") || "").toString().trim(),
-        site: (fd.get("site") || "").toString().trim(),
-        phone: (fd.get("phone") || "").toString().trim(),
-        address: (fd.get("address") || "").toString().trim()
-      };
-
-      const file = fd.get("proof");
-      const { url: proofUrl, path: proofPath } = await uploadFile(file, "brand_proofs");
-
-      const res = await api("/api/company/apply", {
-        method: "POST",
-        body: { ...payload, proofUrl, proofPath }
-      });
-
-      out.textContent = "Заявку відправлено. Статус: pending";
-      flash("Заявка подана. Ми повідомимо після перевірки.");
-      form.reset();
-      setView("profile");
-      await loadProfile();
-    } catch (err) {
-      out.textContent = err.message || String(err);
-    }
-  });
-}
-
-/** ——— створення продуктів (користувач) ——— */
-function setupUserCreate() {
-  const form = qs("#userCreateForm");
-  form?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const fd = new FormData(form);
-    const payload = {
-      name: fd.get("name"),
-      sku: (fd.get("sku") || "").toString().trim().toUpperCase(),
-      manufacturedAt: fd.get("manufacturedAt") || undefined,
-      image: fd.get("image") || undefined,
-      editionCount: Number(fd.get("editionCount") || 1),
-      certificates: (fd.get("certs") || "").toString()
-        .split(",").map(s => s.trim()).filter(Boolean),
-    };
-    const box = qs("#userCreateResult");
-    box.innerHTML = "";
-    try {
-      const res = await api("/api/user/products", { method: "POST", body: payload });
-      const items = Array.isArray(res) ? res : [res];
-      items.forEach(p => box.append(productCard(p, { showQR: true })));
-      flash("Створено!");
-      await loadMyProducts();
-    } catch (err) {
-      flash(err.message);
-    }
-  });
-
-  // Пошук за SKU (користувач)
-  qs("#btnSkuSearchUser")?.addEventListener("click", async ()=>{
-    const sku = (qs("#skuQueryUser")?.value || "").trim().toUpperCase();
-    const box = qs("#skuUserResults"); box.innerHTML = "";
-    if (!sku) return;
-    try{
-      const list = await api(`/api/products?sku=${encodeURIComponent(sku)}`);
-      (list || []).forEach(p => box.append(productCard(p, { showQR:false })));
-      if (!list?.length) box.append(h("div",{class:"muted"},"Нічого не знайдено."));
-    }catch(e){ box.append(h("div",{class:"muted"}, e.message)); }
-  });
-}
-
-/** ——— партії + створення продуктів (компанія) ——— */
-let currentBatchId = "";
-
-async function refreshBatches() {
+// ——— Завантаження мого інвентаря ———
+export async function loadMyProducts() {
   try {
-    const list = await api("/api/manufacturer/batches");
-    const sel = qs("#batchSelect");
-    sel.innerHTML = "";
-    sel.append(new Option("Без партії", "", true, !currentBatchId));
-    (list || []).forEach(b => {
-      const opt = new Option(`${b.title || "Без назви"} — ${b.id}`, b.id, false, b.id === currentBatchId);
-      sel.append(opt);
-    });
-    sel.onchange = ()=> currentBatchId = sel.value || "";
+    const data = await api("/api/products");
+    const items = Array.isArray(data) ? data : [];
+    renderProducts(items);
   } catch (e) {
-    qs("#batchOut").textContent = e.message;
+    console.error("loadMyProducts failed:", e);
+    renderProducts([]);
   }
 }
 
-function setupCompanyCreate() {
-  qs("#btnCreateBatch")?.addEventListener("click", async ()=>{
-    const title = (qs("#batchTitle")?.value || "").trim();
-    qs("#batchOut").textContent = "Створення партії…";
-    try{
-      const b = await api("/api/manufacturer/batches", { method:"POST", body:{ title } });
-      currentBatchId = b.id;
-      await refreshBatches();
-      qs("#batchOut").textContent = `Створено: ${b.id}`;
-      qs("#batchTitle").value = "";
-    }catch(e){ qs("#batchOut").textContent = e.message; }
-  });
-
-  refreshBatches().catch(()=>{});
-
-  const form = qs("#companyCreateForm");
-  form?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const fd = new FormData(form);
-    const payload = {
-      name: fd.get("name"),
-      sku: (fd.get("sku") || "").toString().trim().toUpperCase(),
-      manufacturedAt: fd.get("manufacturedAt") || undefined,
-      image: fd.get("image") || undefined,
-      editionCount: Number(fd.get("editionCount") || 1),
-      certificates: (fd.get("certs") || "").toString()
-        .split(",").map(s => s.trim()).filter(Boolean),
-      batchId: currentBatchId || undefined
-    };
-    const box = qs("#companyCreateResult");
-    box.innerHTML = "";
-    try {
-      const res = await api("/api/manufacturer/products", { method: "POST", body: payload });
-      const items = Array.isArray(res) ? res : [res];
-      items.forEach(p => box.append(productCard(p, { showQR: true })));
-      flash("Створено (компанія)!");
-      await loadMyProducts();
-    } catch (err) {
-      flash(err.message);
-    }
-  });
-
-  // Пошук за SKU (компанія) — показує тільки свої
-  qs("#btnSkuSearchCompany")?.addEventListener("click", async ()=>{
-    const sku = (qs("#skuQueryCompany")?.value || "").trim().toUpperCase();
-    const box = qs("#skuCompanyResults"); box.innerHTML = "";
-    if (!sku) return;
-    try{
-      const list = await api(`/api/manufacturer/products?sku=${encodeURIComponent(sku)}`);
-      (list || []).forEach(p => box.append(productCard(p, { showQR:false })));
-      if (!list?.length) box.append(h("div",{class:"muted"},"Нічого не знайдено."));
-    }catch(e){ box.append(h("div",{class:"muted"}, e.message)); }
-  });
-}
-
-/** ——— адмінка ——— */
-async function refreshAdmins() {
+// ——— Завантаження партій виробника ———
+async function loadMyBatches() {
   try {
-    const data = await api("/api/admins");
-    qs("#adminsList").textContent = "Адміни: " + (data.admins || []).join(", ");
+    const data = await api("/api/manufacturer/batches");
+    const list = Array.isArray(data) ? data : [];
+    renderBatches(list);
   } catch (e) {
-    qs("#adminsList").textContent = e.message;
+    console.warn("loadMyBatches failed:", e);
+    renderBatches([]);
   }
 }
 
-function setupAdmin() {
-  qs("#bootstrapAdmin")?.addEventListener("click", async () => {
-    try {
-      await api("/api/admins/bootstrap", { method: "POST" });
-      flash("Готово. Ви — адмін.");
-      await refreshAdmins();
-    } catch (e) {
-      flash(e.message);
+// ——— Профіль ———
+export async function loadProfile() {
+  try {
+    const me = await api("/api/me");
+
+    // Верхній блок профілю
+    setText("#meEmail", me?.email || "");
+    setText("#meAdmin", me?.isAdmin ? "так" : "ні");
+
+    // Статус компанії/заявки
+    const st = me?.companyApplicationStatus; // "pending" | "approved" | "rejected" | null
+    setText("#meCompanyStatus",
+      st === "approved" ? "апрувнуто" :
+      st === "pending"  ? "на модерації" :
+      st === "rejected" ? "відхилено" : "—"
+    );
+
+    // Бренди
+    const brands = Array.isArray(me?.brands) ? me.brands : [];
+    setHTML("#meBrands", brands.length
+      ? brands.map(b => `<span class="tag">${b.name}${b.verified ? " ✅" : ""}</span>`).join(" ")
+      : "—"
+    );
+
+    // Чи виробник?
+    const isMf = !!me?.isManufacturer;
+    show("#manufacturerArea", isMf);
+
+    // Якщо виробник — підвантажуємо партії
+    if (isMf) {
+      await loadMyBatches();
     }
-  });
 
-  qs("#grantAdminForm")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const email = new FormData(e.currentTarget).get("email");
-    try {
-      await api("/api/admins/grant", { method: "POST", body: { email } });
-      flash("Адміна додано");
-      await refreshAdmins();
-    } catch (er) {
-      flash(er.message);
-    }
-  });
+    // Завжди підвантажуємо мої продукти
+    await loadMyProducts();
 
-  // verify brand
-  qs("#verifyBrandForm")?.addEventListener("submit", async (e)=>{
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const slug = (fd.get("slug")||"").toString().trim().toUpperCase().replace(/\s+/g,"-");
-    const out = qs("#verifyOut");
-    out.textContent = "Верифікація…";
-    try{
-      const res = await api(`/api/manufacturers/${encodeURIComponent(slug)}/verify`, { method:"POST" });
-      out.textContent = `Верифіковано: ${res.slug}`;
-      e.currentTarget.reset();
-    }catch(err){ out.textContent = err.message; }
-  });
-
-  // applications moderation
-  const listEl = qs("#appsList");
-  qs("#btnLoadApps")?.addEventListener("click", async ()=>{
-    listEl.innerHTML = "Завантаження…";
-    try{
-      const apps = await api("/api/admins/company-applications?status=pending");
-      listEl.innerHTML = "";
-      (apps||[]).forEach(a=>{
-        const item = h("div",{class:"item"},
-          h("div",{}, h("b",{}, a.brandName || a.legalName || "Заявка"), " — ", a.country || "—"),
-          h("div",{class:"meta"}, `email: ${a.contactEmail} / vat: ${a.vat || "—"}`),
-          a.proofUrl ? h("div",{}, h("a",{href:a.proofUrl,target:"_blank"},"Переглянути доказ")): null,
-          h("div",{class:"actions"},
-            h("button",{class:"btn primary", onclick:()=>approve(a.id)},"Approve"),
-            h("button",{class:"btn danger", onclick:()=>reject(a.id)},"Reject")
-          )
-        );
-        listEl.append(item);
-      });
-      if (!apps?.length) listEl.innerHTML = "<div class='muted'>Немає нових заявок.</div>";
-    }catch(e){ listEl.innerHTML = `<div class='muted'>${e.message}</div>`; }
-  });
-
-  async function approve(id){
-    try{ await api(`/api/admins/company-applications/${encodeURIComponent(id)}/approve`, {method:"POST"}); flash("Approved"); qs("#btnLoadApps").click(); }
-    catch(e){ flash(e.message); }
-  }
-  async function reject(id){
-    const reason = prompt("Причина відхилення:");
-    try{ await api(`/api/admins/company-applications/${encodeURIComponent(id)}/reject`, {method:"POST", body:{ reason }});
-      flash("Rejected"); qs("#btnLoadApps").click();
-    } catch(e){ flash(e.message); }
+  } catch (e) {
+    console.error("/api/me failed:", e);
+    // Скидаємо UI до «порожнього» стану
+    setText("#meEmail", "");
+    setText("#meAdmin", "ні");
+    setText("#meCompanyStatus", "—");
+    setHTML("#meBrands", "—");
+    renderBatches([]);
+    renderProducts([]);
   }
 }
 
-/** ——— логін/логаут ——— */
-function setupAuth() {
+// ——— Автентифікація та кнопки ———
+export async function setupAuth() {
   const loginBtn = qs("#loginBtn");
   const logoutBtn = qs("#logoutBtn");
 
+  // захищено: кліки можуть бути відсутні на деяких сторінках
+  if (loginBtn)  loginBtn.addEventListener("click", () => Auth.signIn());
+  if (logoutBtn) logoutBtn.addEventListener("click", () => Auth.signOut());
+
   Auth.onChange(async (user) => {
     if (user) {
-      loginBtn.style.display = "none";
-      logoutBtn.style.display = "";
-      await loadProfile();
+      if (loginBtn)  loginBtn.style.display = "none";
+      if (logoutBtn) logoutBtn.style.display = "";
+      await loadProfile(); // ЛИШЕ після логіну
     } else {
-      loginBtn.style.display = "";
-      logoutBtn.style.display = "none";
-      qs("#profileBox").innerHTML = "";
-      qs("#myProducts").innerHTML = "";
-      setView("profile");
+      if (loginBtn)  loginBtn.style.display = "";
+      if (logoutBtn) logoutBtn.style.display = "none";
+      setHTML("#profileBox", "");
+      setHTML("#myProducts", "");
+      setHTML("#batchesBox", "");
+      // можна показати «ввійдіть, щоб продовжити»
     }
   });
 }
 
-/** ——— init ——— */
-function init() {
-  setupNav();
-  setupAuth();
-  setupRoleAndApply();
-  setupUserCreate();
-  setupCompanyCreate();
-  setupAdmin();
-  setView("profile");
-  refreshAdmins().catch(() => {});
-}
-init();
+// ——— Старт ———
+(async function init() {
+  await setupAuth();
+})();
