@@ -4,252 +4,217 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MARKI Secure</title>
-  <link rel="stylesheet" href="/style.css" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Alata&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root { color-scheme: dark; }
+    body { margin:0; font:14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#0b0c10; color:#e6e6e6; }
+    header { display:flex; gap:12px; align-items:center; padding:12px 16px; border-bottom:1px solid #20242a; }
+    header h1 { font-size:16px; margin:0; }
+    header .spacer { flex:1; }
+    button, input, select, textarea { background:#151821; color:#e6e6e6; border:1px solid #2b2f36; border-radius:8px; padding:8px 10px; }
+    button { cursor:pointer; }
+    main { max-width:1000px; margin:24px auto; padding:0 16px 40px; }
+    nav { display:flex; gap:8px; margin-bottom:14px; }
+    nav .tab { border:1px solid #2b2f36; padding:8px 10px; border-radius:999px; cursor:pointer; }
+    nav .tab.active { background:#20242a; }
+    .grid { display:grid; gap:12px; }
+    .cols-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .muted { color:#9aa2ad; }
+    .tag { background:#161a21; border:1px solid #2b2f36; border-radius:999px; padding:2px 8px; margin-right:6px; display:inline-block; }
+    .card { border:1px solid #2b2f36; background:#0e1118; border-radius:12px; padding:12px; }
+    .row { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .empty { padding:12px; color:#9aa2ad; }
+    .hidden { display:none !important; }
+    form .row { gap:8px; }
+    form .row > * { flex:1; }
+    form .row + .row { margin-top:8px; }
+    form .actions { display:flex; justify-content:flex-end; margin-top:10px; gap:8px; }
+    a.btn { text-decoration:none; border:1px solid #2b2f36; padding:5px 9px; border-radius:8px; }
+    small.code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .pill { border:1px solid #2b2f36; padding:2px 8px; border-radius:999px; }
+    .danger { color:#f19aa0; }
+    .ok { color:#a7f3a0; }
+  </style>
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">MARKI Secure</div>
-  <nav class="nav">
-    <button class="nav-btn" data-view="profile">Профіль</button>
-    <button class="nav-btn" data-view="user">Користувач</button>
-    <button class="nav-btn" data-view="company">Компанія</button>
-    <button class="nav-btn" data-view="admin">Адмін</button>
-    <button id="loginBtn" class="login">Увійти з Google</button>
-    <button id="logoutBtn" class="logout" style="display:none">Вийти</button>
-  </nav>
-</header>
+  <header>
+    <h1>MARKI Secure</h1>
+    <nav id="tabs">
+      <span class="tab active" data-view="profile">Профіль</span>
+      <span class="tab" data-view="company">Компанія</span>
+      <span class="tab" data-view="admin">Адмін</span>
+    </nav>
+    <div class="spacer"></div>
+    <button id="loginBtn">Увійти з Google</button>
+    <button id="logoutBtn" style="display:none">Вийти</button>
+  </header>
 
-<main class="container">
-  <div id="flash" class="flash" style="display:none"></div>
+  <main>
+    <!-- Профіль -->
+    <section id="view-profile">
+      <div class="grid cols-2">
+        <div class="card">
+          <h3>Мій профіль</h3>
+          <div>Емейл: <strong id="meEmail"></strong></div>
+          <div>Адмін: <strong id="meAdmin">ні</strong></div>
+          <div>Статус компанії: <strong id="meCompanyStatus">—</strong></div>
+          <div>Мої бренди: <span id="meBrands">—</span></div>
+        </div>
 
-  <!-- РОЛЬ / ЗАПИТАННЯ -->
-  <section id="view-role" class="view" style="display:none">
-    <div class="card">
-      <h2>Ви представляєте компанію?</h2>
-      <p class="muted">Якщо так — подайте заявку на верифікацію. Після підтвердження відкриється функціонал виробника/бренду.</p>
-      <div class="row">
-        <button id="btnRoleNo" class="btn ghost">Ні, пропустити</button>
-        <button id="btnRoleYes" class="btn primary">Так, подати заявку</button>
+        <div class="card">
+          <h3>Статус заявки</h3>
+          <div id="companyNoticeNone" class="muted">
+            Ще немає компанії. Перейдіть на вкладку <strong>Компанія</strong>, щоб подати заявку.
+          </div>
+          <div id="companyNoticePending" class="hidden">
+            <span class="pill">⏳ Заявка на модерації</span>
+          </div>
+          <div id="companyNoticeApproved" class="hidden">
+            <span class="pill ok">✅ Компанію підтверджено</span>
+          </div>
+          <div id="companyNoticeRejected" class="hidden">
+            <span class="pill danger">❌ Заявку відхилено</span>
+          </div>
+        </div>
       </div>
-    </div>
-  </section>
 
-  <!-- ФОРМА ЗАЯВКИ НА КОМПАНІЮ -->
-  <section id="view-apply" class="view" style="display:none">
-    <div class="card">
-      <h2>Заявка на верифікацію компанії</h2>
-      <form id="companyApplyForm" class="form" enctype="multipart/form-data">
-        <div class="grid2">
-          <label>ПІБ представника
-            <input type="text" name="fullName" placeholder="Ім'я Прізвище По батькові" required>
-          </label>
-          <label>Контактний email
-            <input type="email" name="contactEmail" placeholder="you@brand.com" required>
-          </label>
-          <label>Офіційна назва (Legal name)
-            <input type="text" name="legalName" placeholder="Marki Secure SL" required>
-          </label>
-          <label>Публічна назва бренду
-            <input type="text" name="brandName" placeholder="MARKI" required>
-          </label>
-          <label>Країна реєстрації
-            <input type="text" name="country" placeholder="ES" required>
-          </label>
-          <label>VAT/Податковий номер
-            <input type="text" name="vat" placeholder="ESB12345678" required>
-          </label>
-          <label>Реєстраційний номер (за наявності)
-            <input type="text" name="regNumber" placeholder="Опційно">
-          </label>
-          <label>Веб-сайт
-            <input type="url" name="site" placeholder="https://brand.com">
-          </label>
-          <label>Телефон
-            <input type="tel" name="phone" placeholder="+34 ...">
-          </label>
-          <label>Юридична адреса
-            <input type="text" name="address" placeholder="C/ ..., Valencia, ES">
-          </label>
-        </div>
+      <div class="card" id="manufacturerArea" style="display:none; margin-top:12px;">
+        <h3>Панель виробника</h3>
 
-        <div class="card subtle">
-          <h3>Доказ належності компанії</h3>
-          <p class="muted">Завантажте документ (pdf/jpg/png): свідоцтво, рахунок-фактура, довіреність тощо.</p>
-          <input type="file" name="proof" accept=".pdf,.png,.jpg,.jpeg" required>
-        </div>
+        <h4>Мої партії</h4>
+        <div id="batchesBox" class="grid"></div>
 
-        <label class="check">
-          <input type="checkbox" name="confirm" required>
-          <span>Підтверджую достовірність даних і право представляти компанію</span>
-        </label>
+        <details style="margin-top:10px;">
+          <summary>Створити партію</summary>
+          <form id="batchForm">
+            <div class="row"><input name="title" placeholder="Назва партії" required /></div>
+            <div class="actions">
+              <button type="submit">Створити</button>
+            </div>
+          </form>
+        </details>
 
+        <h4 style="margin-top:14px;">Створити товар (для компанії)</h4>
+        <form id="mfProductForm">
+          <div class="row">
+            <input name="name" placeholder="Назва" required />
+            <input name="sku" placeholder="SKU (необов.)" />
+          </div>
+          <div class="row">
+            <input name="manufacturedAt" placeholder="YYYY-MM-DD" />
+            <input name="image" placeholder="Зображення URL (необов.)" />
+          </div>
+          <div class="row">
+            <input name="editionCount" type="number" min="1" value="1" placeholder="Кількість екземплярів" />
+            <select name="batchId" id="batchSelect"><option value="">(без партії)</option></select>
+          </div>
+          <div class="row">
+            <input name="certificates" placeholder="Сертифікати через кому (URL)" />
+          </div>
+          <div class="actions">
+            <button type="submit">Створити</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card" style="margin-top:12px;">
         <div class="row">
-          <button type="button" class="btn ghost" id="applyBack">Назад</button>
-          <button type="submit" class="btn primary">Надіслати заявку</button>
+          <h3>Мої продукти</h3>
+          <details>
+            <summary>+ Створити як користувач</summary>
+            <form id="userProductForm">
+              <div class="row">
+                <input name="name" placeholder="Назва" required />
+                <input name="sku" placeholder="SKU (необов.)" />
+              </div>
+              <div class="row">
+                <input name="manufacturedAt" placeholder="YYYY-MM-DD" />
+                <input name="image" placeholder="Зображення URL (необов.)" />
+              </div>
+              <div class="row">
+                <input name="editionCount" type="number" min="1" value="1" placeholder="Кількість екземплярів" />
+                <input name="certificates" placeholder="Сертифікати через кому (URL)" />
+              </div>
+              <div class="actions">
+                <button type="submit">Створити</button>
+              </div>
+            </form>
+          </details>
         </div>
-        <div id="applyOut" class="muted"></div>
-      </form>
-    </div>
-  </section>
-
-  <!-- ПРОФІЛЬ -->
-  <section id="view-profile" class="view">
-    <h2>Профіль</h2>
-    <div id="profileBox" class="card"></div>
-
-    <h3>Мої продукти</h3>
-    <div id="myProducts" class="grid"></div>
-  </section>
-
-  <!-- КОРИСТУВАЧ -->
-  <section id="view-user" class="view" style="display:none">
-    <h2>Створити продукт (користувач)</h2>
-    <form id="userCreateForm" class="form">
-      <div class="grid2">
-        <label>Назва
-          <input type="text" name="name" required placeholder="Назва продукту">
-        </label>
-        <label>Артикул (SKU)
-          <input type="text" name="sku" required placeholder="ABC-001">
-        </label>
-        <label>Дата виготовлення
-          <input type="date" name="manufacturedAt">
-        </label>
-        <label>Кількість екземплярів
-          <input type="number" name="editionCount" min="1" value="1">
-        </label>
-        <label>Посилання на зображення (необов’язково)
-          <input type="url" name="image" placeholder="https://...">
-        </label>
-        <label>Сертифікати (через кому, необов’язково)
-          <input type="text" name="certs" placeholder="ISO9001, CE">
-        </label>
+        <div id="myProducts" class="grid"></div>
       </div>
+    </section>
 
-      <div class="row">
-        <button type="submit" class="btn primary">Створити</button>
+    <!-- Компанія -->
+    <section id="view-company" class="hidden">
+      <div class="card">
+        <h3>Подати заявку на компанію</h3>
+        <div id="applyHints" class="muted" style="margin-bottom:8px;">
+          Після схвалення модератором для вас автоматично створиться бренд та доступ до панелі виробника.
+        </div>
+        <form id="companyForm" autocomplete="on">
+          <div class="row">
+            <input name="fullName" placeholder="Ваше імʼя" required />
+            <input name="contactEmail" placeholder="Контактний email" required />
+          </div>
+          <div class="row">
+            <input name="legalName" placeholder="Юридична назва" required />
+            <input name="brandName" placeholder="Публічна назва бренду" />
+          </div>
+          <div class="row">
+            <input name="country" placeholder="Країна" />
+            <input name="vat" placeholder="VAT/ЄДРПОУ" />
+          </div>
+          <div class="row">
+            <input name="regNumber" placeholder="Реєстраційний номер" />
+            <input name="site" placeholder="Сайт" />
+          </div>
+          <div class="row">
+            <input name="phone" placeholder="Телефон" />
+            <input name="address" placeholder="Адреса" />
+          </div>
+          <div class="row">
+            <input type="file" id="proofFile" accept="image/*,application/pdf" />
+            <input name="proofUrl" placeholder="Посилання на підтвердження (заповниться автоматично)" />
+          </div>
+          <div class="actions">
+            <button type="submit">Надіслати заявку</button>
+          </div>
+        </form>
+        <div id="applyMsg" class="muted" style="margin-top:8px;"></div>
       </div>
-    </form>
+    </section>
 
-    <div class="card">
-      <h3>Пошук за артикулом (мої товари)</h3>
-      <div class="row">
-        <input id="skuQueryUser" class="input" placeholder="ABC-001">
-        <button id="btnSkuSearchUser" class="btn">Знайти</button>
+    <!-- Адмінка -->
+    <section id="view-admin" class="hidden">
+      <div class="card">
+        <div class="row">
+          <h3>Адмін панель</h3>
+          <button id="adminBootstrap" title="Стати першим адміном (працює лише поки список адмінів порожній)">Bootstrap</button>
+        </div>
+        <div class="grid cols-2">
+          <div class="card">
+            <h4>Очікують модерації</h4>
+            <div id="adminApps"></div>
+          </div>
+          <div class="card">
+            <h4>Створити бренд для користувача</h4>
+            <form id="adminCreateBrandForm">
+              <div class="row">
+                <input name="name" placeholder="Назва бренду" required />
+                <input name="email" placeholder="Email власника" required />
+              </div>
+              <div class="actions">
+                <button type="submit">Створити</button>
+              </div>
+            </form>
+            <div id="adminMsg" class="muted" style="margin-top:8px;"></div>
+          </div>
+        </div>
       </div>
-      <div id="skuUserResults" class="grid"></div>
-    </div>
+    </section>
+  </main>
 
-    <h3>Щойно створено</h3>
-    <div id="userCreateResult" class="grid"></div>
-  </section>
-
-  <!-- КОМПАНІЯ -->
-  <section id="view-company" class="view" style="display:none">
-    <h2>Створити продукт (компанія)</h2>
-    <p class="muted">Потрібна верифікована компанія, прив’язана до вашого акаунта.</p>
-
-    <div class="card subtle">
-      <h3>Партії</h3>
-      <div class="row">
-        <input id="batchTitle" placeholder="Назва партії (опційно)" />
-        <button id="btnCreateBatch" class="btn">Створити партію</button>
-        <select id="batchSelect"></select>
-      </div>
-      <div id="batchOut" class="muted"></div>
-    </div>
-
-    <form id="companyCreateForm" class="form">
-      <div class="grid2">
-        <label>Назва
-          <input type="text" name="name" required placeholder="Назва продукту">
-        </label>
-        <label>Артикул (SKU)
-          <input type="text" name="sku" required placeholder="ABC-001">
-        </label>
-        <label>Дата виготовлення
-          <input type="date" name="manufacturedAt">
-        </label>
-        <label>Кількість екземплярів
-          <input type="number" name="editionCount" min="1" value="1">
-        </label>
-        <label>Посилання на зображення (необов’язково)
-          <input type="url" name="image" placeholder="https://...">
-        </label>
-        <label>Сертифікати (через кому, необов’язково)
-          <input type="text" name="certs" placeholder="ISO9001, CE">
-        </label>
-      </div>
-
-      <div class="row">
-        <button type="submit" class="btn primary">Створити (компанія)</button>
-      </div>
-    </form>
-
-    <div class="card">
-      <h3>Пошук за артикулом (компанія)</h3>
-      <div class="row">
-        <input id="skuQueryCompany" class="input" placeholder="ABC-001">
-        <button id="btnSkuSearchCompany" class="btn">Знайти</button>
-      </div>
-      <div id="skuCompanyResults" class="grid"></div>
-    </div>
-
-    <h3>Щойно створено</h3>
-    <div id="companyCreateResult" class="grid"></div>
-  </section>
-
-  <!-- АДМІН -->
-  <section id="view-admin" class="view" style="display:none">
-    <h2>Адмін-панель</h2>
-
-    <div class="card">
-      <h3>Адміни</h3>
-      <div class="row">
-        <button id="bootstrapAdmin">Я — перший адмін</button>
-      </div>
-      <form id="grantAdminForm" class="form row">
-        <input type="email" name="email" required placeholder="email користувача">
-        <button type="submit">Додати адміна</button>
-      </form>
-      <div id="adminsList" class="muted"></div>
-    </div>
-
-    <div class="card">
-      <h3>Створити бренд на email</h3>
-      <form id="createBrandForUserForm" class="form row">
-        <input type="text" name="name" required placeholder="Назва бренду">
-        <input type="email" name="email" required placeholder="email власника бренду">
-        <button type="submit">Створити</button>
-      </form>
-    </div>
-
-    <div class="card">
-      <h3>Верифікувати бренд (ручне підтвердження)</h3>
-      <form id="verifyBrandForm" class="form row">
-        <input type="text" name="slug" required placeholder="SLUG">
-        <button type="submit">Верифікувати</button>
-      </form>
-      <div id="verifyOut" class="muted"></div>
-    </div>
-
-    <div class="card">
-      <h3>Заявки на компанію</h3>
-      <div class="row">
-        <button id="btnLoadApps" class="btn">Оновити список</button>
-      </div>
-      <div id="appsList" class="list"></div>
-    </div>
-  </section>
-</main>
-
-<!-- СТАВИШ БЕЗ type="module" і ДО app.js/main.js -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"
-        referrerpolicy="no-referrer"></script>
-<script type="module" src="./firebase.js"></script>
-<script type="module" src="./app.js"></script>
-<script type="module" src="./main.js"></script>
+  <!-- модульний JS -->
+  <script type="module" src="./main.js"></script>
 </body>
 </html>
