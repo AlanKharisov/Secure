@@ -860,6 +860,7 @@ func fsListApplicationsByStatus(ctx context.Context, status AppStatus) ([]Compan
 	}
 	return out, nil
 }
+
 func fsApproveApplication(ctx context.Context, id, reviewedBy string) (CompanyApplication, error) {
 	ref := fsDoc("companyApplications/" + id)
 	err := fsClient.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
@@ -883,8 +884,14 @@ func fsApproveApplication(ctx context.Context, id, reviewedBy string) (CompanyAp
 	if err != nil {
 		return CompanyApplication{}, err
 	}
-	return fsGetApplication(ctx, id)
+	// ⬇️ було: return fsGetApplication(ctx, id)
+	app, _, err := fsGetApplication(ctx, id)
+	if err != nil {
+		return CompanyApplication{}, err
+	}
+	return app, nil
 }
+
 func fsRejectApplication(ctx context.Context, id, reviewedBy, reason string) (CompanyApplication, error) {
 	ref := fsDoc("companyApplications/" + id)
 	err := fsClient.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
@@ -909,7 +916,12 @@ func fsRejectApplication(ctx context.Context, id, reviewedBy, reason string) (Co
 	if err != nil {
 		return CompanyApplication{}, err
 	}
-	return fsGetApplication(ctx, id)
+	// ⬇️ було: return fsGetApplication(ctx, id)
+	app, _, err := fsGetApplication(ctx, id)
+	if err != nil {
+		return CompanyApplication{}, err
+	}
+	return app, nil
 }
 
 // --- Batches ---
