@@ -1,316 +1,433 @@
+// docs/main.js (ES module)
 import { Auth, uploadFile } from "./firebase.js";
-import { api } from "./app.js";
 
-// ——— DOM helpers ———
-const qs  = (s, r=document)=>r.querySelector(s);
-const qsa = (s, r=document)=>Array.from(r.querySelectorAll(s));
-const on  = (el, ev, fn)=>el && el.addEventListener(ev, fn);
+/* ---------- helpers ---------- */
+const qs  = (s, el=document) => el.querySelector(s);
+const qsa = (s, el=document) => [...el.querySelectorAll(s)];
+const on  = (el, ev, fn, opts) => el && el.addEventListener(ev, fn, opts);
 
-function setView(name) {
-  qsa("main > section").forEach(s => s.classList.add("hidden"));
-  qs(`#view-${name}`)?.classList.remove("hidden");
-  qsa("nav .tab").forEach(t => t.classList.toggle("active", t.dataset.view===name));
+function setView(view) {
+  // Очікуємо секції з data-view="profile|manufacturer|admin"
+  qsa("[data-view]").forEach(sec => {
+    sec.style.display = sec.dataset.view === view ? "" : "none";
+  });
+  // підсвітка навігації (опційно)
+  qsa("[data-nav]").forEach(a=>{
+    a.classList.toggle("active", a.dataset.nav === view);
+  });
 }
-on(document.getElementById("tabs"), "click", (e)=>{
-  const t = e.target.closest(".tab"); if (!t) return; setView(t.dataset.view);
-});
 
-function txt(sel, v){ const el=qs(sel); if(el) el.textContent=v??""; }
-function html(sel, v){ const el=qs(sel); if(el) el.innerHTML=v??""; }
-function show(sel, yes=true){ const el=qs(sel); if(el) el.style.display = yes?"":"none"; }
-const parseCSV = (s)=> (s||"").split(",").map(x=>x.trim()).filter(Boolean);
+async function api(path, { method="GET", body=null, headers={} } = {}) {
+  const h = { "Content-Type": "application/json", ...headers };
+  const token = await Auth.idToken();
+  if (token) h["Authorization"] = `Bearer ${token}`;
+  else if (Auth.user?.email) h["X-User"] = Auth.user.email; // fallback для деву
 
-// ——— RENDER ———
-function renderProducts(items) {
-  const box = qs("#myProducts");
-  const list = Array.isArray(items)? items : [];
-  if (!list.length) { box.innerHTML = `<div class="empty">Немає продуктів</div>`; return; }
-  box.innerHTML = list.map(p=>`
+  const res = await fetch(path, {
+    method,
+    headers: h,
+    body: body ? JSON.stringify(body) : null,
+    credentials: "same-origin",
+  });
+
+  // 204 OK без тіла
+  if (res.status === 204) return null;
+
+  let data = null;
+  const ct = res.headers.get("content-type") || "";
+  if (ct.includes("application/json")) {
+    try { data = await res.json(); } catch (_) {}
+  } else {
+    data = await res.text();
+  }
+
+  if (!res.ok) {
+    const msg = data?.error || (typeof data === "string" ? data : `HTTP ${res.status}`);
+    throw new Error(msg);
+  }
+  return data;
+}
+
+/* ---------- UI рендери ---------- */
+
+function renderProfileBox(me) {
+  const box = qs("#profileBox");
+  if (!box) return;
+
+  const appStatus = me.companyApplicationStatus ?? null;
+  const statusBadge = appStatus
+    ? `<span class="tag tag-${appStatus}">${appStatus}</span>`
+    : `<span class="tag">no application</span>`;
+
+  const brands = (me.brands || []).map(b => `
+    <li>
+      <strong>${b.name}</strong>
+      <small>(${b.slug})</small>
+      ${b.verified ? ` <span class="tag tag-approved">verified</span>` : ``}
+    </li>`).join("") || `<em>—</em>`;
+
+  box.innerHTML = `
     <div class="card">
-      <div class="row"><strong>#${p.tokenId}</strong><span>${p?.meta?.name||""}</span></div>
-      <div class="muted">SKU: ${p.sku||"—"} · Вид. ${p.editionNo||1}/${p.editionTotal||1}</div>
-      <div class="muted">Стан: ${p.state||"created"}</div>
-      ${p.publicUrl? `<a class="btn" href="${p.publicUrl}" target="_blank" rel="noopener">Деталі</a>`:""}
+      <h3>Профіль</h3>
+      <p><b>Email:</b> ${me.email}</p>
+      <p><b>Ролі:</b>
+        ${me.isAdmin ? `<span class="tag">admin</span>` : ``}
+        ${me.isManufacturer ? `<span class="tag">manufacturer</span>` : `<span class="tag">user</span>`}
+      </p>
+      <p><b>Статус заявки:</b> ${statusBadge}</p>
+      <p><b>Бренди:</b></p>
+      <ul>${brands}</ul>
+    </div>
+  `;
+
+  // навігацію вмикаємо/ховаємо
+  const adminNav = qs('[data-nav="admin"]');
+  if (adminNav) adminNav.style.display = me.isAdmin ? "" : "none";
+
+  const manufNav = qs('[data-nav="manufacturer"]');
+  if (manufNav) manufNav.style.display = (me.isManufacturer || appStatus === "approved") ? "" : "none";
+}
+
+function renderProductsList(list, el) {
+  if (!el) return;
+  if (!Array.isArray(list) || list.length === 0) {
+    el.innerHTML = `<div class="muted">Немає продуктів</div>`;
+    return;
+  }
+  el.innerHTML = list.map(p => `
+    <div class="card">
+      <div class="row">
+        <div class="col">
+          <div><b>${p.meta?.name || "ITEM"}</b></div>
+          <div>Token: ${p.tokenId}</div>
+          <div>SKU: ${p.sku || "—"}</div>
+          <div>Edition: ${p.editionNo || 1}/${p.editionTotal || 1}</div>
+          <div>State: <span class="tag">${p.state}</span></div>
+        </div>
+        <div class="col right">
+          ${p.publicUrl ? `<a class="btn" href="${p.publicUrl}" target="_blank">Деталі</a>` : ``}
+        </div>
+      </div>
     </div>
   `).join("");
 }
-function renderBatches(items) {
-  const box = qs("#batchesBox");
-  const list = Array.isArray(items)? items : [];
-  if (!list.length) { box.innerHTML = `<div class="empty">Партій ще немає</div>`; return; }
-  box.innerHTML = list.map(b=>`
-    <div class="row"><strong>${b.title}</strong><span class="muted">#${b.id}</span></div>
+
+function renderAdminApps(list) {
+  const wrap = qs("#adminApps");
+  if (!wrap) return;
+  if (!Array.isArray(list) || list.length === 0) {
+    wrap.innerHTML = `<div class="muted">Немає заявок</div>`;
+    return;
+  }
+  wrap.innerHTML = list.map(a => `
+    <div class="card" data-app="${a.id}">
+      <h4>${a.brandName || a.legalName}</h4>
+      <p><b>Заявник:</b> ${a.fullName} &lt;${a.contactEmail || a.user}&gt;</p>
+      <p><b>Країна:</b> ${a.country || "—"} | <b>VAT:</b> ${a.vat || "—"} | <b>Reg#:</b> ${a.regNumber || "—"}</p>
+      <p><b>Сайт:</b> ${a.site || "—"} | <b>Тел:</b> ${a.phone || "—"}</p>
+      <p><b>Адреса:</b> ${a.address || "—"}</p>
+      <p><b>Доказ:</b> ${a.proofUrl ? `<a href="${a.proofUrl}" target="_blank">переглянути</a>` : "—"}</p>
+      <div class="row">
+        <button class="btn" data-approve="${a.id}">Approve</button>
+        <button class="btn danger" data-reject="${a.id}">Reject</button>
+      </div>
+    </div>
   `).join("");
-  // наповнимо селект для створення товару компанією
-  const sel = qs("#batchSelect");
-  if (sel) {
-    sel.innerHTML = `<option value="">(без партії)</option>` +
-      list.map(b=>`<option value="${b.id}">${b.title}</option>`).join("");
-  }
 }
 
-// ——— LOADERS ———
+/* ---------- loaders ---------- */
+
+async function loadProfile() {
+  const me = await api("/api/me");
+  renderProfileBox(me);
+
+  // завжди вантажимо мої (користувацькі) продукти
+  await loadMyProducts();
+
+  // якщо він виробник або вже approved — показуємо вкладку виробника та дані
+  if (me.isManufacturer || me.companyApplicationStatus === "approved") {
+    await loadManufacturerBatches();
+    await loadManufacturerProducts();
+  }
+
+  // якщо адмін – підгружаємо заявки
+  if (me.isAdmin) {
+    await loadAdminPending();
+  }
+
+  // якщо нічого не вибрано — відкриваємо профіль
+  setView("profile");
+}
+
 async function loadMyProducts() {
-  try {
-    const data = await api("/api/products");
-    renderProducts(Array.isArray(data)? data : []);
-  } catch (e) {
-    console.error("loadMyProducts:", e);
-    renderProducts([]);
-  }
+  const list = await api("/api/products");
+  renderProductsList(list, qs("#myProducts"));
 }
-async function loadMyBatches() {
+
+async function loadManufacturerProducts() {
+  const sku = (qs("#manuSkuFilter")?.value || "").trim().toUpperCase();
+  const url = sku ? `/api/manufacturer/products?sku=${encodeURIComponent(sku)}` : `/api/manufacturer/products`;
   try {
-    const data = await api("/api/manufacturer/batches");
-    renderBatches(Array.isArray(data)? data : []);
+    const list = await api(url);
+    renderProductsList(list, qs("#myProductsCompany"));
   } catch (e) {
-    console.warn("loadMyBatches:", e);
-    renderBatches([]);
+    // якщо 401 — просто нічого не показуємо (користувач не виробник)
+    console.warn("company products:", e.message || e);
+    const el = qs("#myProductsCompany");
+    if (el) el.innerHTML = `<div class="muted">Недоступно</div>`;
   }
 }
 
-async function loadPendingApps() {
+async function loadManufacturerBatches() {
+  try {
+    const list = await api("/api/manufacturer/batches");
+    const el = qs("#myBatches");
+    if (!el) return;
+    if (!Array.isArray(list) || list.length === 0) {
+      el.innerHTML = `<div class="muted">Партій ще немає</div>`;
+      return;
+    }
+    el.innerHTML = list.map(b => `
+      <div class="card"><b>${b.title}</b> <small>#${b.id}</small></div>
+    `).join("");
+    // заповнимо селект batchId якщо є
+    const sel = qs("#companyProductForm select[name='batchId']");
+    if (sel) {
+      sel.innerHTML = `<option value="">— без партії —</option>` +
+        list.map(b => `<option value="${b.id}">${b.title}</option>`).join("");
+    }
+  } catch (e) {
+    console.warn("batches:", e.message || e);
+    const el = qs("#myBatches");
+    if (el) el.innerHTML = `<div class="muted">Недоступно</div>`;
+  }
+}
+
+async function loadAdminPending() {
   try {
     const list = await api("/api/admins/company-applications?status=pending");
-    const box = qs("#adminApps");
-    if (!Array.isArray(list) || !list.length) { box.innerHTML = `<div class="empty">Немає заявок</div>`; return; }
-    box.innerHTML = list.map(a=>`
-      <div class="card">
-        <div class="row"><strong>${a.brandName || a.legalName}</strong><span class="muted">${a.contactEmail}</span></div>
-        <div class="muted">Країна: ${a.country || "—"} · Статус: ${a.status}</div>
-        <div class="actions" style="justify-content:flex-start;margin-top:8px;">
-          <button data-act="approve" data-id="${a.id}">Схвалити</button>
-          <button data-act="reject" data-id="${a.id}">Відхилити</button>
-        </div>
-      </div>
-    `).join("");
-    box.querySelectorAll("[data-act=approve]").forEach(btn=>{
-      btn.addEventListener("click", async()=>{
-        btn.disabled = true;
-        try { await api(`/api/admins/company-applications/${btn.dataset.id}/approve`, { method:"POST" }); await loadPendingApps(); }
-        catch(e){ alert(e.message||e); } finally { btn.disabled=false; }
-      });
-    });
-    box.querySelectorAll("[data-act=reject]").forEach(btn=>{
-      btn.addEventListener("click", async()=>{
-        const reason = prompt("Причина відхилення:");
-        if (reason==null) return;
-        btn.disabled=true;
-        try {
-          await api(`/api/admins/company-applications/${btn.dataset.id}/reject`, { method:"POST", body:{ reason } });
-          await loadPendingApps();
-        } catch(e){ alert(e.message||e); } finally { btn.disabled=false; }
-      });
-    });
+    renderAdminApps(list);
   } catch (e) {
-    console.error("loadPendingApps:", e);
-    qs("#adminApps").innerHTML = `<div class="empty">Помилка: ${e.message||e}</div>`;
+    console.warn("admin apps:", e.message || e);
+    const el = qs("#adminApps");
+    if (el) el.innerHTML = `<div class="muted">Адмін дані недоступні</div>`;
   }
 }
 
-// ——— PROFILE ———
-export async function loadProfile() {
-  try {
-    const me = await api("/api/me");
-    txt("#meEmail", me?.email || "");
-    txt("#meAdmin", me?.isAdmin ? "так" : "ні");
+/* ---------- event wiring ---------- */
 
-    const st = me?.companyApplicationStatus ?? null;
-    txt("#meCompanyStatus",
-      st==="approved" ? "апрувнуто" :
-      st==="pending"  ? "на модерації" :
-      st==="rejected" ? "відхилено" : "—"
-    );
-
-    const brands = Array.isArray(me?.brands) ? me.brands : [];
-    html("#meBrands", brands.length
-      ? brands.map(b=>`<span class="tag">${b.name}${b.verified?" ✅":""}</span>`).join(" ")
-      : "—"
-    );
-
-    // повідомлення у профілі
-    qs("#companyNoticeNone")?.classList.toggle("hidden", !!st);
-    qs("#companyNoticePending")?.classList.toggle("hidden", st!=="pending");
-    qs("#companyNoticeApproved")?.classList.toggle("hidden", st!=="approved");
-    qs("#companyNoticeRejected")?.classList.toggle("hidden", st!=="rejected");
-
-    // виробник?
-    const isMf = !!me?.isManufacturer;
-    show("#manufacturerArea", isMf);
-    if (isMf) await loadMyBatches();
-
-    // продукти — завжди
-    await loadMyProducts();
-
-    // адмінка
-    if (me?.isAdmin) {
-      setView(qs("nav .tab.active")?.dataset.view || "profile"); // не чіпаємо активну вкладку
-      await loadPendingApps();
-    } else {
-      qs("#adminApps").innerHTML = `<div class="empty">Ви не адмін</div>`;
-    }
-
-    // підказки на вкладці "Компанія"
-    const applyHints = qs("#applyHints");
-    if (applyHints) {
-      applyHints.textContent =
-        !isMf && st!=="pending"
-          ? "Після схвалення модератором автоматично з'явиться бренд і панель виробника."
-          : st==="pending"
-            ? "Заявка на розгляді — дочекайтеся рішення модератора."
-            : "Компанію вже підтверджено.";
-    }
-
-  } catch (e) {
-    console.error("/api/me:", e);
-    txt("#meEmail","");
-    txt("#meAdmin","ні");
-    txt("#meCompanyStatus","—");
-    html("#meBrands","—");
-    show("#manufacturerArea", false);
-    renderProducts([]);
-    renderBatches([]);
-  }
+function wireNav() {
+  on(qs('[data-nav="profile"]'), "click", (e)=>{ e.preventDefault(); setView("profile"); });
+  on(qs('[data-nav="manufacturer"]'), "click", async (e)=>{
+    e.preventDefault(); setView("manufacturer");
+    // підстрахуємося — підвантажимо свіже
+    await loadManufacturerBatches();
+    await loadManufacturerProducts();
+  });
+  on(qs('[data-nav="admin"]'), "click", async (e)=>{
+    e.preventDefault(); setView("admin");
+    await loadAdminPending();
+  });
 }
 
-// ——— FORMS ———
-function initFormsOnce() {
-  if (document.body.dataset.formsInit) return;
-  document.body.dataset.formsInit = "1";
-
-  // створення партії
-  on(qs("#batchForm"), "submit", async (e)=>{
-    e.preventDefault();
-    const f = e.target;
-    const title = f.title.value.trim();
-    if (!title) return;
-    try { await api("/api/manufacturer/batches", { method:"POST", body:{ title } }); f.reset(); await loadMyBatches(); }
-    catch (e){ alert(e.message||e); }
-  });
-
-  // товар як компанія
-  on(qs("#mfProductForm"), "submit", async (e)=>{
-    e.preventDefault();
-    const f = e.target;
-    const body = {
-      name: f.name.value.trim(),
-      sku: f.sku.value.trim(),
-      manufacturedAt: f.manufacturedAt.value.trim(),
-      image: f.image.value.trim(),
-      editionCount: Number(f.editionCount.value || 1),
-      certificates: parseCSV(f.certificates.value),
-      batchId: f.batchId.value.trim(),
-    };
-    if (!body.name) return alert("Вкажіть назву");
-    try { await api("/api/manufacturer/products", { method:"POST", body }); f.reset(); await loadMyProducts(); }
-    catch (e){ alert(e.message||e); }
-  });
-
-  // товар як користувач
-  on(qs("#userProductForm"), "submit", async (e)=>{
-    e.preventDefault();
-    const f = e.target;
-    const body = {
-      name: f.name.value.trim(),
-      sku: f.sku.value.trim(),
-      manufacturedAt: f.manufacturedAt.value.trim(),
-      image: f.image.value.trim(),
-      editionCount: Number(f.editionCount.value || 1),
-      certificates: parseCSV(f.certificates.value),
-    };
-    if (!body.name) return alert("Вкажіть назву");
-    try { await api("/api/user/products", { method:"POST", body }); f.reset(); await loadMyProducts(); }
-    catch (e){ alert(e.message||e); }
-  });
-
-  // заявка на компанію
-  on(qs("#companyForm"), "submit", async (e)=>{
-    e.preventDefault();
-    const f = e.target;
-    const body = {
-      fullName: f.fullName.value.trim(),
-      contactEmail: f.contactEmail.value.trim(),
-      legalName: f.legalName.value.trim(),
-      brandName: f.brandName.value.trim(),
-      country: f.country.value.trim(),
-      vat: f.vat.value.trim(),
-      regNumber: f.regNumber.value.trim(),
-      site: f.site.value.trim(),
-      phone: f.phone.value.trim(),
-      address: f.address.value.trim(),
-      proofUrl: f.proofUrl.value.trim(),
-      proofPath: "", // заповниться якщо вантажили файл через Storage
-    };
-    if (!body.fullName || !body.contactEmail || !body.legalName) return alert("Заповніть обовʼязкові поля");
-    try {
-      await api("/api/company/apply", { method:"POST", body });
-      qs("#applyMsg").textContent = "Заявку надіслано. Очікуйте модерації.";
-      f.reset();
-      await loadProfile();
-      setView("profile");
-    } catch (e){ alert(e.message||e); }
-  });
-
-  // завантаження файлу-доказу через Firebase Storage
+function wireCompanyApplication() {
+  // аплоад доказу
   on(qs("#proofFile"), "change", async (e)=>{
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!Auth.user) { alert("Спочатку увійдіть"); return; }
     try {
       const { url, path } = await uploadFile(file, "brand_proofs");
       const input = qs('#companyForm [name="proofUrl"]');
       if (input) input.value = url;
-      // збережемо шлях у data, якщо буде потрібно
       qs("#companyForm").dataset.proofPath = path;
-      qs("#applyMsg").innerHTML = `Файл завантажено: <a class="btn" href="${url}" target="_blank">переглянути</a>`;
-    } catch (e) { alert("Upload: " + (e.message||e)); }
+      const msg = qs("#applyMsg");
+      if (msg) msg.innerHTML = `Файл завантажено: <a class="btn" href="${url}" target="_blank">переглянути</a>`;
+    } catch (err) {
+      alert("Upload error: " + (err.message || err));
+    }
   });
 
-  // адмін: bootstrap
-  on(qs("#adminBootstrap"), "click", async ()=>{
-    try { await api("/api/admins/bootstrap", { method:"POST" }); alert("Готово. Перезавантажте сторінку."); }
-    catch(e){ alert(e.message||e); }
-  });
-
-  // адмін: створення бренду для юзера
-  on(qs("#adminCreateBrandForm"), "submit", async (e)=>{
+  // сабміт заявки
+  on(qs("#companyForm"), "submit", async (e)=>{
     e.preventDefault();
+    if (!Auth.user) { alert("Увійдіть у акаунт"); return; }
     const f = e.target;
-    const body = { name: f.name.value.trim(), email: f.email.value.trim() };
-    if (!body.name || !body.email) return;
-    try { await api("/api/admins/create-manufacturer", { method:"POST", body }); qs("#adminMsg").textContent = "Створено"; f.reset(); }
-    catch(e){ qs("#adminMsg").textContent = "Помилка: " + (e.message||e); }
-  });
-}
-
-// ——— AUTH ———
-async function setupAuth() {
-  const loginBtn  = qs("#loginBtn");
-  const logoutBtn = qs("#logoutBtn");
-  if (loginBtn)  loginBtn.addEventListener("click", () => Auth.signIn());
-  if (logoutBtn) logoutBtn.addEventListener("click", () => Auth.signOut());
-
-  Auth.onChange(async (user)=>{
-    if (user) {
-      if (loginBtn)  loginBtn.style.display = "none";
-      if (logoutBtn) logoutBtn.style.display = "";
-      // префіл контактного емейлу в заявці
-      const ce = qs('#companyForm [name="contactEmail"]');
-      if (ce) ce.value = user.email || "";
+    const body = {
+      fullName:     f.fullName?.value.trim(),
+      contactEmail: f.contactEmail?.value.trim(),
+      legalName:    f.legalName?.value.trim(),
+      brandName:    f.brandName?.value.trim(),
+      country:      f.country?.value.trim(),
+      vat:          f.vat?.value.trim(),
+      regNumber:    f.regNumber?.value.trim(),
+      site:         f.site?.value.trim(),
+      phone:        f.phone?.value.trim(),
+      address:      f.address?.value.trim(),
+      proofUrl:     f.proofUrl?.value.trim(),
+      proofPath:    (qs("#companyForm").dataset.proofPath || ""),
+    };
+    if (!body.fullName || !body.contactEmail || !body.legalName) {
+      alert("Заповніть обовʼязкові поля (Імʼя, Email, Юр.назва)");
+      return;
+    }
+    try {
+      await api("/api/company/apply", { method:"POST", body });
+      const msg = qs("#applyMsg");
+      if (msg) msg.textContent = "Заявку надіслано. Очікуйте модерації.";
+      f.reset();
+      delete qs("#companyForm")?.dataset.proofPath;
       await loadProfile();
-    } else {
-      if (loginBtn)  loginBtn.style.display = "";
-      if (logoutBtn) logoutBtn.style.display = "none";
       setView("profile");
-      html("#myProducts","");
-      html("#batchesBox","");
+    } catch (err) {
+      alert("Помилка подачі: " + (err.message || err));
     }
   });
 }
 
-// ——— init ———
-init();
-async function init() {
-  initFormsOnce();
-  await setupAuth();
-  setView("profile");
+function wireManufacturer() {
+  // створення партії
+  on(qs("#batchForm"), "submit", async (e)=>{
+    e.preventDefault();
+    const f = e.target;
+    const title = f.title?.value.trim();
+    if (!title) { alert("Вкажіть назву партії"); return; }
+    try {
+      await api("/api/manufacturer/batches", { method:"POST", body:{ title } });
+      f.reset();
+      await loadManufacturerBatches();
+    } catch (err) {
+      alert("Помилка створення партії: " + (err.message || err));
+    }
+  });
+
+  // фільтр SKU
+  on(qs("#manuSkuBtn"), "click", async ()=>{
+    await loadManufacturerProducts();
+  });
+
+  // створення товарів (компанія)
+  on(qs("#companyProductForm"), "submit", async (e)=>{
+    e.preventDefault();
+    const f = e.target;
+    const body = {
+      name:           f.name?.value.trim(),
+      sku:            f.sku?.value.trim(),
+      manufacturedAt: f.manufacturedAt?.value.trim(),
+      image:          f.image?.value.trim(),
+      editionCount:   parseInt(f.editionCount?.value || "1", 10) || 1,
+      certificates:   (f.certificates?.value || "").split(",").map(s=>s.trim()).filter(Boolean),
+      batchId:        f.batchId?.value.trim(),
+    };
+    if (!body.name) { alert("Вкажіть назву товару"); return; }
+    try {
+      const created = await api("/api/manufacturer/products", { method:"POST", body });
+      const msg = qs("#companyCreateMsg");
+      if (msg) msg.textContent = `Створено: ${Array.isArray(created) ? created.length : 1}`;
+      await loadManufacturerProducts();
+      f.reset();
+    } catch (err) {
+      alert("Помилка створення товару: " + (err.message || err));
+    }
+  });
+
+  // створення товарів (звичайний користувач) — якщо форма присутня
+  on(qs("#userProductForm"), "submit", async (e)=>{
+    e.preventDefault();
+    const f = e.target;
+    const body = {
+      name:           f.name?.value.trim(),
+      sku:            f.sku?.value.trim(),
+      manufacturedAt: f.manufacturedAt?.value.trim(),
+      image:          f.image?.value.trim(),
+      editionCount:   parseInt(f.editionCount?.value || "1", 10) || 1,
+      certificates:   (f.certificates?.value || "").split(",").map(s=>s.trim()).filter(Boolean),
+    };
+    if (!body.name) { alert("Вкажіть назву товару"); return; }
+    try {
+      const created = await api("/api/user/products", { method:"POST", body });
+      const msg = qs("#userCreateMsg");
+      if (msg) msg.textContent = `Створено: ${Array.isArray(created) ? created.length : 1}`;
+      await loadMyProducts();
+      f.reset();
+      setView("profile");
+    } catch (err) {
+      alert("Помилка створення товару: " + (err.message || err));
+    }
+  });
 }
+
+function wireAdmin() {
+  const wrap = qs("#adminApps");
+  if (!wrap) return;
+
+  on(wrap, "click", async (e)=>{
+    const btn = e.target.closest("button");
+    if (!btn) return;
+
+    if (btn.dataset.approve) {
+      const id = btn.dataset.approve;
+      try {
+        await api(`/api/admins/company-applications/${id}/approve`, { method:"POST" });
+        // Після approve — перелік оновити і профіль перезавантажити (бренд створиться/верифікується)
+        await loadAdminPending();
+        await loadProfile();
+      } catch (err) {
+        alert("Approve error: " + (err.message || err));
+      }
+    }
+
+    if (btn.dataset.reject) {
+      const id = btn.dataset.reject;
+      const reason = prompt("Причина відмови:");
+      try {
+        await api(`/api/admins/company-applications/${id}/reject`, { method:"POST", body:{ reason: reason || "" } });
+        await loadAdminPending();
+        await loadProfile();
+      } catch (err) {
+        alert("Reject error: " + (err.message || err));
+      }
+    }
+  });
+}
+
+/* ---------- auth ---------- */
+async function setupAuth() {
+  // Проста навігація видів для неавторизованого стану
+  setView("profile");
+
+  Auth.onChange(async (user) => {
+    const loginBtn  = qs("#loginBtn");
+    const logoutBtn = qs("#logoutBtn");
+    if (loginBtn)  loginBtn.style.display  = user ? "none" : "";
+    if (logoutBtn) logoutBtn.style.display = user ? "" : "none";
+
+    if (!user) {
+      // очищаємо UI
+      const clearTargets = ["#profileBox", "#myProducts", "#myProductsCompany", "#myBatches", "#adminApps", "#applyMsg", "#companyCreateMsg", "#userCreateMsg"];
+      clearTargets.forEach(sel => { const el = qs(sel); if (el) el.innerHTML = ""; });
+      setView("profile");
+      return; // взагалі нічого не вантажимо
+    }
+
+    // Авторизований — вантажимо профіль і решту
+    try {
+      await loadProfile();
+    } catch (e) {
+      console.error("loadProfile:", e.message || e);
+    }
+  });
+}
+
+/* ---------- init ---------- */
+function wireStaticUI() {
+  wireNav();
+  wireCompanyApplication();
+  wireManufacturer();
+  wireAdmin();
+}
+
+(async function init(){
+  wireStaticUI();
+  await setupAuth();
+})();
