@@ -1,6 +1,5 @@
 // main.go — MARKI Secure backend (Firestore + Firebase Auth)
-// ДОДАНО: company applications, batches, SKU + batchId у продуктах, адмін-модерація заявок
-
+// Покриває: company applications, batches, SKU-фільтри, адмін-модерацію
 package main
 
 import (
@@ -117,25 +116,25 @@ type FSProduct struct {
 /* Company Applications */
 
 type CompanyApplication struct {
-	ID          string `json:"id"`
-	FullName    string `json:"fullName"`
+	ID           string `json:"id"`
+	FullName     string `json:"fullName"`
 	ContactEmail string `json:"contactEmail"`
-	LegalName   string `json:"legalName"`
-	BrandName   string `json:"brandName"`
-	Country     string `json:"country"`
-	VAT         string `json:"vat"`
-	RegNumber   string `json:"regNumber"`
-	Site        string `json:"site"`
-	Phone       string `json:"phone"`
-	Address     string `json:"address"`
-	ProofURL    string `json:"proofUrl"`
-	ProofPath   string `json:"proofPath"`
+	LegalName    string `json:"legalName"`
+	BrandName    string `json:"brandName"`
+	Country      string `json:"country"`
+	VAT          string `json:"vat"`
+	RegNumber    string `json:"regNumber"`
+	Site         string `json:"site"`
+	Phone        string `json:"phone"`
+	Address      string `json:"address"`
+	ProofURL     string `json:"proofUrl"`
+	ProofPath    string `json:"proofPath"`
 
-	Status    string `json:"status"` // pending|approved|rejected
-	Reason    string `json:"reason,omitempty"`
-	CreatedBy string `json:"createdBy"` // email подавача
-	CreatedAt int64  `json:"createdAt"`
-	UpdatedAt int64  `json:"updatedAt"`
+	Status     string `json:"status"` // pending|approved|rejected
+	Reason     string `json:"reason,omitempty"`
+	CreatedBy  string `json:"createdBy"`
+	CreatedAt  int64  `json:"createdAt"`
+	UpdatedAt  int64  `json:"updatedAt"`
 	ReviewedBy string `json:"reviewedBy,omitempty"`
 }
 
@@ -165,7 +164,7 @@ type FSCompanyApp struct {
 type Batch struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
-	Owner     string `json:"owner"` // email
+	Owner     string `json:"owner"`
 	CreatedAt int64  `json:"createdAt"`
 }
 
@@ -594,7 +593,7 @@ func main() {
 	mux.HandleFunc("/api/admins/grant", withCORS(adminGrant))
 	mux.HandleFunc("/api/admins/create-manufacturer", withCORS(adminCreateManufacturerForUser))
 
-	// NEW: company applications moderation
+	// company applications moderation
 	mux.HandleFunc("/api/admins/company-applications", withCORS(adminListCompanyApps))
 	mux.HandleFunc("/api/admins/company-applications/", withCORS(adminDecideCompanyApp)) // /{id}/approve | /{id}/reject
 
@@ -602,15 +601,15 @@ func main() {
 	mux.HandleFunc("/api/manufacturers", withCORS(manufacturerCreateOrList))
 	mux.HandleFunc("/api/manufacturers/", withCORS(manufacturerGetOrVerify))
 
-	// NEW: company apply endpoint for users
+	// company apply endpoint
 	mux.HandleFunc("/api/company/apply", withCORS(companyApply))
 
-	// NEW: batches
+	// batches
 	mux.HandleFunc("/api/manufacturer/batches", withCORS(batchesListOrCreate))
 
 	// products
 	mux.HandleFunc("/api/user/products", withCORS(userCreateProduct))
-	mux.HandleFunc("/api/manufacturer/products", withCORS(companyCreateProduct))
+	mux.HandleFunc("/api/manufacturer/products", withCORS(companyProducts)) // GET (search) + POST (create)
 	mux.HandleFunc("/api/products", withCORS(productsList))
 	mux.HandleFunc("/api/products/", withCORS(productActions))
 
@@ -789,7 +788,7 @@ func adminDecideCompanyApp(w http.ResponseWriter, r *http.Request) {
 		if err != nil && !strings.Contains(strings.ToLower(err.Error()), "already exists") {
 			writeJSON(w, 500, ErrorResp{err.Error()}); return
 		}
-		// відмітимо verified
+		// верифікуємо бренд
 		if _, err := fsVerifyBrand(ctx, slugify(fs.BrandName), strings.ToLower(actor)); err != nil {
 			writeJSON(w, 500, ErrorResp{err.Error()}); return
 		}
@@ -842,8 +841,6 @@ func companyApply(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, 400, ErrorResp{"invalid json"}); return
 	}
-
-	// Мінімальні валідації:
 	if strings.TrimSpace(body.BrandName) == "" || strings.TrimSpace(body.ContactEmail) == "" {
 		writeJSON(w, 400, ErrorResp{"brandName and contactEmail required"}); return
 	}
@@ -919,7 +916,7 @@ type userCreateReq struct {
 	Image          string   `json:"image,omitempty"`
 	EditionCount   int      `json:"editionCount,omitempty"`
 	Certificates   []string `json:"certificates,omitempty"`
-	BatchID        string   `json:"batchId,omitempty"` // на випадок, якщо колись треба
+	BatchID        string   `json:"batchId,omitempty"`
 }
 
 func userCreateProduct(w http.ResponseWriter, r *http.Request) {
@@ -973,7 +970,7 @@ func userCreateProduct(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, created)
 }
 
-/* ==== COMPANY create products (brand auto by owner) ==== */
+/* ==== COMPANY create products & search ==== */
 
 type companyCreateReq struct {
 	Name           string   `json:"name"`
@@ -985,62 +982,90 @@ type companyCreateReq struct {
 	BatchID        string   `json:"batchId,omitempty"`
 }
 
-func companyCreateProduct(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions { returnOK(w); return }
-	if r.Method != http.MethodPost { writeJSON(w, 405, ErrorResp{"Method not allowed"}); return }
+func companyProducts(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodOptions:
+		returnOK(w); return
 
-	user := currentUser(r)
-	if user == "" { writeJSON(w, 401, ErrorResp{"missing user"}); return }
+	case http.MethodGet: // пошук своїх по SKU
+		user := currentUser(r)
+		if user == "" { writeJSON(w, 401, ErrorResp{"missing user"}); return }
+		sku := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("sku")))
 
-	var req companyCreateReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, 400, ErrorResp{"invalid json"}); return
-	}
-	name := strings.TrimSpace(req.Name)
-	if name == "" { writeJSON(w, 400, ErrorResp{"name required"}); return }
-
-	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second); defer cancel()
-
-	brandSlug, ok, err := fsFirstBrandSlugByOwner(ctx, user)
-	if err != nil { writeJSON(w, 500, ErrorResp{err.Error()}); return }
-	if !ok { writeJSON(w, 403, ErrorResp{"no brand for this account"}); return }
-
-	manAt := strings.TrimSpace(req.ManufacturedAt)
-	if manAt == "" { manAt = time.Now().Format("2006-01-02") }
-	total := req.EditionCount
-	if total <= 0 { total = 1 }
-
-	var created []Product
-	for i := 1; i <= total; i++ {
-		serial := genSerial(name, i, total)
-		meta := Metadata{
-			Name: name, ManufacturedAt: manAt, Serial: serial,
-			Certificates: append([]string{}, req.Certificates...), Image: strings.TrimSpace(req.Image),
-			Version: 1,
-		}
-		ipfs := sha256Hex(string(mustJSON(meta)))[:46]
-		serH := sha256Hex(serial)
-
-		id, err := nextProductID(ctx)
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second); defer cancel()
+		list, err := fsListProductsByOwner(ctx, user)
 		if err != nil { writeJSON(w, 500, ErrorResp{err.Error()}); return }
 
-		p := Product{
-			TokenID: id, BrandSlug: brandSlug, Meta: meta, IPFSHash: ipfs, SerialHash: serH,
-			State: StateCreated, CreatedAt: time.Now().UnixMilli(),
-			PublicURL: makePublicURL(id), Owner: user, Seller: user,
-			EditionNo: i, EditionTotal: total, SKU: strings.ToUpper(strings.TrimSpace(req.SKU)),
-			BatchID: strings.TrimSpace(req.BatchID),
+		// якщо передано sku — фільтруємо локально (простий contains/equals, лишимо equals)
+		if sku != "" {
+			var filtered []Product
+			for _, p := range list {
+				if strings.ToUpper(p.SKU) == sku {
+					filtered = append(filtered, p)
+				}
+			}
+			writeJSON(w, 200, filtered); return
 		}
-		if _, err := fsCreateProduct(ctx, p); err != nil {
-			writeJSON(w, 500, ErrorResp{err.Error()}); return
+		writeJSON(w, 200, list); return
+
+	case http.MethodPost: // створення компанією
+		user := currentUser(r)
+		if user == "" { writeJSON(w, 401, ErrorResp{"missing user"}); return }
+
+		var req companyCreateReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, 400, ErrorResp{"invalid json"}); return
 		}
-		created = append(created, p)
+		name := strings.TrimSpace(req.Name)
+		if name == "" { writeJSON(w, 400, ErrorResp{"name required"}); return }
+
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second); defer cancel()
+
+		brandSlug, ok, err := fsFirstBrandSlugByOwner(ctx, user)
+		if err != nil { writeJSON(w, 500, ErrorResp{err.Error()}); return }
+		if !ok { writeJSON(w, 403, ErrorResp{"no brand for this account"}); return }
+
+		manAt := strings.TrimSpace(req.ManufacturedAt)
+		if manAt == "" { manAt = time.Now().Format("2006-01-02") }
+		total := req.EditionCount
+		if total <= 0 { total = 1 }
+
+		var created []Product
+		for i := 1; i <= total; i++ {
+			serial := genSerial(name, i, total)
+			meta := Metadata{
+				Name: name, ManufacturedAt: manAt, Serial: serial,
+				Certificates: append([]string{}, req.Certificates...), Image: strings.TrimSpace(req.Image),
+				Version: 1,
+			}
+			ipfs := sha256Hex(string(mustJSON(meta)))[:46]
+			serH := sha256Hex(serial)
+
+			id, err := nextProductID(ctx)
+			if err != nil { writeJSON(w, 500, ErrorResp{err.Error()}); return }
+
+			p := Product{
+				TokenID: id, BrandSlug: brandSlug, Meta: meta, IPFSHash: ipfs, SerialHash: serH,
+				State: StateCreated, CreatedAt: time.Now().UnixMilli(),
+				PublicURL: makePublicURL(id), Owner: user, Seller: user,
+				EditionNo: i, EditionTotal: total, SKU: strings.ToUpper(strings.TrimSpace(req.SKU)),
+				BatchID: strings.TrimSpace(req.BatchID),
+			}
+			if _, err := fsCreateProduct(ctx, p); err != nil {
+				writeJSON(w, 500, ErrorResp{err.Error()}); return
+			}
+			created = append(created, p)
+		}
+		if len(created) == 1 { writeJSON(w, 201, created[0]); return }
+		writeJSON(w, 201, created)
+		return
+
+	default:
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
 	}
-	if len(created) == 1 { writeJSON(w, 201, created[0]); return }
-	writeJSON(w, 201, created)
 }
 
-/* GET /api/products — лише мої */
+/* GET /api/products — лише мої (+sku фільтр) */
 
 func productsList(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions { returnOK(w); return }
@@ -1053,6 +1078,17 @@ func productsList(w http.ResponseWriter, r *http.Request) {
 
 	list, err := fsListProductsByOwner(ctx, user)
 	if err != nil { writeJSON(w, 500, ErrorResp{err.Error()}); return }
+
+	if sku := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("sku"))); sku != "" {
+		var filtered []Product
+		for _, p := range list {
+			if strings.ToUpper(p.SKU) == sku {
+				filtered = append(filtered, p)
+			}
+		}
+		writeJSON(w, 200, filtered); return
+	}
+
 	writeJSON(w, 200, list)
 }
 
@@ -1126,4 +1162,148 @@ func verifyProduct(w http.ResponseWriter, r *http.Request) {
 		"sku":          p.SKU,
 		"batchId":      p.BatchID,
 	})
+}
+
+/* ========= Manufacturers (створення, перегляд, верифікація) ========= */
+
+// /api/manufacturers (GET my list; POST create mine)
+func manufacturerCreateOrList(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodOptions:
+		returnOK(w); return
+	case http.MethodGet:
+		u := currentUser(r)
+		if u == "" {
+			writeJSON(w, 401, ErrorResp{"missing user"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+		defer cancel()
+		list, err := fsListBrandsByOwner(ctx, u)
+		if err != nil {
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		writeJSON(w, 200, list)
+		return
+	case http.MethodPost:
+		u := currentUser(r)
+		if u == "" {
+			writeJSON(w, 401, ErrorResp{"missing user"})
+			return
+		}
+		var body struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, 400, ErrorResp{"invalid json"})
+			return
+		}
+		name := strings.TrimSpace(body.Name)
+		if name == "" {
+			writeJSON(w, 400, ErrorResp{"name is required"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+		defer cancel()
+		m, err := fsCreateBrand(ctx, name, u)
+		if err != nil {
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		writeJSON(w, 201, m)
+		return
+	default:
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
+	}
+}
+
+// GET /api/manufacturers/{slug}  |  POST /api/manufacturers/{slug}/verify (admin)
+func manufacturerGetOrVerify(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		returnOK(w)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/manufacturers/")
+	if rest == "" {
+		writeJSON(w, 404, ErrorResp{"not found"})
+		return
+	}
+	parts := strings.Split(rest, "/")
+	slug := slugify(parts[0])
+
+	switch {
+	case len(parts) == 1 && r.Method == http.MethodGet:
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		m, err := fsGetBrand(ctx, slug)
+		if err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "not found") {
+				writeJSON(w, 404, ErrorResp{"manufacturer not found"})
+				return
+			}
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		writeJSON(w, 200, m)
+		return
+
+	case len(parts) == 2 && parts[1] == "verify" && r.Method == http.MethodPost:
+		u := currentUser(r)
+		if !isAdmin(u) {
+			writeJSON(w, 403, ErrorResp{"forbidden"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		m, err := fsVerifyBrand(ctx, slug, u)
+		if err != nil {
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		writeJSON(w, 200, m)
+		return
+
+	default:
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
+	}
+}
+
+/* Admin helper — створити бренд на конкретний email */
+// POST /api/admins/create-manufacturer { name, email }
+func adminCreateManufacturerForUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		returnOK(w)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
+		return
+	}
+
+	actor := currentUser(r)
+	if !isAdmin(actor) {
+		writeJSON(w, 403, ErrorResp{"forbidden"})
+		return
+	}
+
+	var body struct{ Name, Email string }
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, ErrorResp{"invalid json"})
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	email := strings.ToLower(strings.TrimSpace(body.Email))
+	if name == "" || email == "" {
+		writeJSON(w, 400, ErrorResp{"name and email required"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+	defer cancel()
+	m, err := fsCreateBrand(ctx, name, email)
+	if err != nil {
+		writeJSON(w, 500, ErrorResp{err.Error()})
+		return
+	}
+	writeJSON(w, 201, m)
 }
