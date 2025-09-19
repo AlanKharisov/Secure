@@ -1,4 +1,4 @@
-// firebase.js — Google Sign-In (Popup + Redirect fallback) + Storage upload helper
+// firebase.js — Google Sign-In + Storage (підключаємо "той самий" бакет з CORS)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
 import {
   getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect,
@@ -10,7 +10,8 @@ const firebaseConfig = {
   apiKey: "AIzaSyBknpQ46_NXV0MisgfjZ7Qs-XS9jhn7hws",
   authDomain: "fir-d9f54.firebaseapp.com",
   projectId: "fir-d9f54",
-  storageBucket: "fir-d9f54.appspot.com",
+  // ВАЖЛИВО: ставимо той бакет, де вже є CORS
+  storageBucket: "fir-d9f54.firebasestorage.app",
   messagingSenderId: "797519127919",
   appId: "1:797519127919:web:016740e5f7f6fe333eb49a",
   measurementId: "G-LHZJH1VPG6",
@@ -18,8 +19,10 @@ const firebaseConfig = {
 
 console.log("[Auth] init firebase…");
 const app = initializeApp(firebaseConfig);
+
+// Явно вкажемо gs:// саме цього бакета (щоб не поліз у appspot.com)
 const auth = getAuth(app);
-const storage = getStorage(app);
+const storage = getStorage(app, "gs://fir-d9f54.firebasestorage.app");
 
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
@@ -42,19 +45,19 @@ export const Auth = {
   },
   async signOut() { await fbSignOut(auth); },
   async idToken() { return auth.currentUser ? getIdToken(auth.currentUser, true) : ""; },
-  onChange(cb) {
-    return onAuthStateChanged(auth, (u) => { this.user = u || null; console.log("[Auth] onChange:", this.user?.email || null); cb(this.user); });
-  },
+  onChange(cb) { return onAuthStateChanged(auth, (u)=>{ this.user=u||null; console.log("[Auth] onChange:", this.user?.email||null); cb(this.user); }); },
 };
 
-getRedirectResult(auth).catch((e)=>console.warn("redirect:", e?.message || e));
+getRedirectResult(auth).catch(e=>console.warn("redirect:", e?.message||e));
 
 document.getElementById("loginBtn")?.addEventListener("click", () => Auth.signIn());
 document.getElementById("logoutBtn")?.addEventListener("click", () => Auth.signOut());
 
+/** Upload helper → Firebase Storage. Повертає public URL. */
 export async function uploadFile(file, pathPrefix = "brand_proofs") {
   if (!file) throw new Error("Файл не обрано");
-  const uid = Auth.user?.uid || "anon";
+  if (!Auth.user) throw new Error("Спочатку увійдіть у свій акаунт");
+  const uid = Auth.user.uid;
   const ext = (file.name.split(".").pop() || "bin").toLowerCase();
   const ts = Date.now();
   const path = `${pathPrefix}/${uid}/${ts}.${ext}`;
