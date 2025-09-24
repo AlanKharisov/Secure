@@ -1,5 +1,11 @@
 // app.js — легкий API-клієнт з Bearer-токеном Firebase
-import { Auth } from "./firebase.js";
+import { Auth } from "/firebase.js";
+
+// якщо треба форс-дев для локальних тестів: постав true
+const DEV_ALLOW_XUSER_FALLBACK = false;
+
+export const qs  = (s, el = document) => el.querySelector(s);
+export const qsa = (s, el = document) => [...el.querySelectorAll(s)];
 
 export async function api(path, opts = {}) {
   const url = path; // той самий хост
@@ -14,9 +20,12 @@ export async function api(path, opts = {}) {
 
   try {
     const t = await Auth.idToken();
-    if (t) headers.set("Authorization", `Bearer ${t}`);
-    if (Auth.user?.email) headers.set("X-User", Auth.user.email);
-  } catch {}
+    if (t) {
+      headers.set("Authorization", `Bearer ${t}`);
+    } else if (DEV_ALLOW_XUSER_FALLBACK && Auth.user?.email) {
+      headers.set("X-User", Auth.user.email);
+    }
+  } catch { /* no-op */ }
 
   const res = await fetch(url, { method, headers, body, credentials: "include" });
   const ct = res.headers.get("Content-Type") || "";
