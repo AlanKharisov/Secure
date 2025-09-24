@@ -189,6 +189,25 @@ var (
 	fsEnabled  = false
 
 	defaultAdmin = "alankharisov1@gmail.com"
+
+	// Дозволити дев-фолбек X-User (тільки якщо явно ALLOW_XUSER_DEV=true)
+	allowXUser = strings.EqualFold(strings.TrimSpace(os.Getenv("ALLOW_XUSER_DEV")), "true")
+
+	// Білий список CORS-оріджинів: ALLOWED_ORIGINS="https://a.com,https://b.com"
+	allowedOrigins = func() map[string]struct{} {
+		raw := strings.TrimSpace(os.Getenv("ALLOWED_ORIGINS"))
+		m := map[string]struct{}{}
+		if raw == "" {
+			return m // порожній = дозвіл "*" (див. withCORS)
+		}
+		for _, o := range strings.Split(raw, ",") {
+			o = strings.TrimSpace(o)
+			if o != "" {
+				m[o] = struct{}{}
+			}
+		}
+		return m
+	}()
 )
 
 // ================== INIT FIREBASE ==================
@@ -255,10 +274,20 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 func returnOK(w http.ResponseWriter) { w.WriteHeader(http.StatusOK) }
 
+// CORS з підтримкою ALLOWED_ORIGINS, інакше "*"
 func withCORS(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Відкритий CORS (фронт сидить на app.world-of-photo.com)
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if len(allowedOrigins) == 0 {
+			// за замовчуванням — відкрито
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else {
+			if _, ok := allowedOrigins[origin]; ok && origin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User, X-Api-Key")
 		if r.Method == http.MethodOptions {
@@ -299,9 +328,14 @@ func emailFromIDToken(r *http.Request) string {
 	}
 	return ""
 }
+
+// дев-фолбек X-User допускається лише якщо ALLOW_XUSER_DEV=true
 func currentUser(r *http.Request) string {
 	if e := emailFromIDToken(r); e != "" {
 		return e
+	}
+	if !allowXUser {
+		return ""
 	}
 	u := strings.TrimSpace(r.Header.Get("X-User"))
 	if u == "" {
@@ -884,7 +918,7 @@ func fsApproveApplication(ctx context.Context, id, reviewedBy string) (CompanyAp
 	if err != nil {
 		return CompanyApplication{}, err
 	}
-	// ⬇️ було: return fsGetApplication(ctx, id)
+	// повертаємо свіжий знімок
 	app, _, err := fsGetApplication(ctx, id)
 	if err != nil {
 		return CompanyApplication{}, err
@@ -916,7 +950,6 @@ func fsRejectApplication(ctx context.Context, id, reviewedBy, reason string) (Co
 	if err != nil {
 		return CompanyApplication{}, err
 	}
-	// ⬇️ було: return fsGetApplication(ctx, id)
 	app, _, err := fsGetApplication(ctx, id)
 	if err != nil {
 		return CompanyApplication{}, err
@@ -989,6 +1022,7 @@ func main() {
 			"firestore":    fsEnabled,
 			"auth":         authClient != nil,
 			"defaultAdmin": defaultAdmin,
+			"allowXUser":   allowXUser,
 		})
 	})
 
@@ -1074,7 +1108,6 @@ func handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// додамо статус останньої заявки (для фронту, щоб не питати зайвий раз)
 	app, ok, err := fsLatestApplicationForUser(ctx, u)
 	if err != nil {
 		writeJSON(w, 500, ErrorResp{err.Error()})
@@ -1086,10 +1119,10 @@ func handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, 200, map[string]any{
-		"email":                   u,
-		"isAdmin":                 isAdmin(u),
-		"isManufacturer":          len(brands) > 0,
-		"brands":                  brands,
+		"email":                    u,
+		"isAdmin":                  isAdmin(u),
+		"isManufacturer":           len(brands) > 0,
+		"brands":                   brands,
 		"companyApplicationStatus": status, // "pending"/"approved"/"rejected" or null
 	})
 }
@@ -1132,37 +1165,49 @@ func adminsList(w http.ResponseWriter, r *http.Request) {
 
 func adminBootstrap(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
-		returnOK(w); return
+		returnOK(w)
+		return
 	}
 	if r.Method != http.MethodPost {
-		writeJSON(w, 405, ErrorResp{"Method not allowed"}); return
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
+		return
 	}
 	u := currentUser(r)
 	if u == "" {
-		writeJSON(w, 401, ErrorResp{"missing user"}); return
+		writeJSON(w, 401, ErrorResp{"missing user"})
+		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
 	defer cancel()
 	it := fsCol("admins").Limit(1).Documents(ctx)
 	_, err := it.Next()
 	if err == nil {
-		writeJSON(w, 403, ErrorResp{"already initialized"}); return
+		writeJSON(w, 403, ErrorResp{"already initialized"})
+		return
 	}
 	if err != iterator.Done && err != nil {
-		writeJSON(w, 500, ErrorResp{err.Error()}); return
+		writeJSON(w, 500, ErrorResp{err.Error()})
+		return
 	}
 	_, err = fsDoc("admins/"+strings.ToLower(u)).Create(ctx, map[string]any{
 		"email": strings.ToLower(u), "createdAt": time.Now(),
 	})
 	if err != nil {
-		writeJSON(w, 500, ErrorResp{err.Error()}); return
+		writeJSON(w, 500, ErrorResp{err.Error()})
+		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "admin": strings.ToLower(u)})
 }
 
 func adminGrant(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions { returnOK(w); return }
-	if r.Method != http.MethodPost { writeJSON(w, 405, ErrorResp{"Method not allowed"}); return }
+	if r.Method == http.MethodOptions {
+		returnOK(w)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
+		return
+	}
 
 	actor := currentUser(r)
 	if !isAdmin(actor) {
@@ -1171,11 +1216,13 @@ func adminGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct{ Email string }
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, 400, ErrorResp{"invalid json"}); return
+		writeJSON(w, 400, ErrorResp{"invalid json"})
+		return
 	}
 	email := strings.ToLower(strings.TrimSpace(body.Email))
 	if email == "" {
-		writeJSON(w, 400, ErrorResp{"email required"}); return
+		writeJSON(w, 400, ErrorResp{"email required"})
+		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -1183,44 +1230,62 @@ func adminGrant(w http.ResponseWriter, r *http.Request) {
 		"email": email, "updatedAt": time.Now(),
 	}, firestore.MergeAll)
 	if err != nil {
-		writeJSON(w, 500, ErrorResp{err.Error()}); return
+		writeJSON(w, 500, ErrorResp{err.Error()})
+		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
 func adminCreateManufacturerForUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions { returnOK(w); return }
-	if r.Method != http.MethodPost { writeJSON(w, 405, ErrorResp{"Method not allowed"}); return }
+	if r.Method == http.MethodOptions {
+		returnOK(w)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
+		return
+	}
 
 	actor := currentUser(r)
 	if !isAdmin(actor) {
-		writeJSON(w, 403, ErrorResp{"forbidden"}); return
+		writeJSON(w, 403, ErrorResp{"forbidden"})
+		return
 	}
 	var body struct{ Name, Email string }
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, 400, ErrorResp{"invalid json"}); return
+		writeJSON(w, 400, ErrorResp{"invalid json"})
+		return
 	}
 	name := strings.TrimSpace(body.Name)
 	email := strings.ToLower(strings.TrimSpace(body.Email))
 	if name == "" || email == "" {
-		writeJSON(w, 400, ErrorResp{"name and email required"}); return
+		writeJSON(w, 400, ErrorResp{"name and email required"})
+		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
 	defer cancel()
 	m, err := fsCreateBrand(ctx, name, email)
 	if err != nil {
-		writeJSON(w, 500, ErrorResp{err.Error()}); return
+		writeJSON(w, 500, ErrorResp{err.Error()})
+		return
 	}
 	writeJSON(w, 201, m)
 }
 
 func adminListApplications(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions { returnOK(w); return }
-	if r.Method != http.MethodGet { writeJSON(w, 405, ErrorResp{"Method not allowed"}); return }
+	if r.Method == http.MethodOptions {
+		returnOK(w)
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
+		return
+	}
 
 	actor := currentUser(r)
 	if !isAdmin(actor) {
-		writeJSON(w, 403, ErrorResp{"forbidden"}); return
+		writeJSON(w, 403, ErrorResp{"forbidden"})
+		return
 	}
 	statusStr := strings.TrimSpace(r.URL.Query().Get("status"))
 	if statusStr == "" {
@@ -1242,22 +1307,28 @@ func adminListApplications(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	list, err := fsListApplicationsByStatus(ctx, st)
 	if err != nil {
-		writeJSON(w, 500, ErrorResp{err.Error()}); return
+		writeJSON(w, 500, ErrorResp{err.Error()})
+		return
 	}
 	writeJSON(w, 200, list)
 }
 
 func adminModerateApplication(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions { returnOK(w); return }
+	if r.Method == http.MethodOptions {
+		returnOK(w)
+		return
+	}
 
 	actor := currentUser(r)
 	if !isAdmin(actor) {
-		writeJSON(w, 403, ErrorResp{"forbidden"}); return
+		writeJSON(w, 403, ErrorResp{"forbidden"})
+		return
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/api/admins/company-applications/")
 	parts := strings.Split(rest, "/")
 	if len(parts) != 2 {
-		writeJSON(w, 404, ErrorResp{"not found"}); return
+		writeJSON(w, 404, ErrorResp{"not found"})
+		return
 	}
 	id := parts[0]
 	action := parts[1]
@@ -1267,13 +1338,18 @@ func adminModerateApplication(w http.ResponseWriter, r *http.Request) {
 
 	switch action {
 	case "approve":
-		if r.Method != http.MethodPost { writeJSON(w, 405, ErrorResp{"Method not allowed"}); return }
+		if r.Method != http.MethodPost {
+			writeJSON(w, 405, ErrorResp{"Method not allowed"})
+			return
+		}
 		app, err := fsApproveApplication(ctx, id, actor)
 		if err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "already") {
-				writeJSON(w, 409, ErrorResp{err.Error()}); return
+				writeJSON(w, 409, ErrorResp{err.Error()})
+				return
 			}
-			writeJSON(w, 500, ErrorResp{err.Error()}); return
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
 		}
 		// авто-створюємо бренд і одразу його верифікуємо
 		ownerEmail := app.ContactEmail
@@ -1293,12 +1369,16 @@ func adminModerateApplication(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case "reject":
-		if r.Method != http.MethodPost { writeJSON(w, 405, ErrorResp{"Method not allowed"}); return }
+		if r.Method != http.MethodPost {
+			writeJSON(w, 405, ErrorResp{"Method not allowed"})
+			return
+		}
 		var body struct{ Reason string `json:"reason"` }
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		app, err := fsRejectApplication(ctx, id, actor, strings.TrimSpace(body.Reason))
 		if err != nil {
-			writeJSON(w, 500, ErrorResp{err.Error()}); return
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": true, "app": app})
 		return
@@ -1308,19 +1388,27 @@ func adminModerateApplication(w http.ResponseWriter, r *http.Request) {
 }
 
 func companyApply(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions { returnOK(w); return }
-	if r.Method != http.MethodPost { writeJSON(w, 405, ErrorResp{"Method not allowed"}); return }
+	if r.Method == http.MethodOptions {
+		returnOK(w)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, 405, ErrorResp{"Method not allowed"})
+		return
+	}
 
 	user := currentUser(r)
 	if user == "" {
-		writeJSON(w, 401, ErrorResp{"missing user"}); return
+		writeJSON(w, 401, ErrorResp{"missing user"})
+		return
 	}
 	var body struct {
 		FullName, ContactEmail, LegalName, BrandName, Country, VAT, RegNumber, Site, Phone, Address string
 		ProofURL, ProofPath                                                                          string
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, 400, ErrorResp{"invalid json"}); return
+		writeJSON(w, 400, ErrorResp{"invalid json"})
+		return
 	}
 	app := CompanyApplication{
 		User:         user,
@@ -1341,7 +1429,8 @@ func companyApply(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	created, err := fsCreateCompanyApplication(ctx, app)
 	if err != nil {
-		writeJSON(w, 500, ErrorResp{err.Error()}); return
+		writeJSON(w, 500, ErrorResp{err.Error()})
+		return
 	}
 	writeJSON(w, 201, created)
 }
@@ -1349,58 +1438,97 @@ func companyApply(w http.ResponseWriter, r *http.Request) {
 func manufacturerCreateOrList(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodOptions:
-		returnOK(w); return
+		returnOK(w)
+		return
 	case http.MethodGet:
 		u := currentUser(r)
-		if u == "" { writeJSON(w, 401, ErrorResp{"missing user"}); return }
-		ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second); defer cancel()
+		if u == "" {
+			writeJSON(w, 401, ErrorResp{"missing user"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+		defer cancel()
 		list, err := fsListBrandsByOwner(ctx, u)
-		if err != nil { writeJSON(w, 500, ErrorResp{err.Error()}); return }
-		writeJSON(w, 200, list); return
+		if err != nil {
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		writeJSON(w, 200, list)
+		return
 	case http.MethodPost:
 		u := currentUser(r)
-		if u == "" { writeJSON(w, 401, ErrorResp{"missing user"}); return }
+		if u == "" {
+			writeJSON(w, 401, ErrorResp{"missing user"})
+			return
+		}
 		var body struct{ Name string `json:"name"` }
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeJSON(w, 400, ErrorResp{"invalid json"}); return
+			writeJSON(w, 400, ErrorResp{"invalid json"})
+			return
 		}
 		name := strings.TrimSpace(body.Name)
-		if name == "" { writeJSON(w, 400, ErrorResp{"name is required"}); return }
-		ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second); defer cancel()
+		if name == "" {
+			writeJSON(w, 400, ErrorResp{"name is required"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+		defer cancel()
 		m, err := fsCreateBrand(ctx, name, u)
-		if err != nil { writeJSON(w, 500, ErrorResp{err.Error()}); return }
-		writeJSON(w, 201, m); return
+		if err != nil {
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		writeJSON(w, 201, m)
+		return
 	default:
 		writeJSON(w, 405, ErrorResp{"Method not allowed"})
 	}
 }
 
 func manufacturerGetOrVerify(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions { returnOK(w); return }
+	if r.Method == http.MethodOptions {
+		returnOK(w)
+		return
+	}
 	rest := strings.TrimPrefix(r.URL.Path, "/api/manufacturers/")
-	if rest == "" { writeJSON(w, 404, ErrorResp{"not found"}); return }
+	if rest == "" {
+		writeJSON(w, 404, ErrorResp{"not found"})
+		return
+	}
 	parts := strings.Split(rest, "/")
 	slug := slugify(parts[0])
 
 	switch {
 	case len(parts) == 1 && r.Method == http.MethodGet:
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second); defer cancel()
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
 		m, err := fsGetBrand(ctx, slug)
 		if err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "not found") {
-				writeJSON(w, 404, ErrorResp{"manufacturer not found"}); return
+				writeJSON(w, 404, ErrorResp{"manufacturer not found"})
+				return
 			}
-			writeJSON(w, 500, ErrorResp{err.Error()}); return
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
 		}
-		writeJSON(w, 200, m); return
+		writeJSON(w, 200, m)
+		return
 
 	case len(parts) == 2 && parts[1] == "verify" && r.Method == http.MethodPost:
 		u := currentUser(r)
-		if !isAdmin(u) { writeJSON(w, 403, ErrorResp{"forbidden"}); return }
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second); defer cancel()
+		if !isAdmin(u) {
+			writeJSON(w, 403, ErrorResp{"forbidden"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
 		m, err := fsVerifyBrand(ctx, slug, u)
-		if err != nil { writeJSON(w, 500, ErrorResp{err.Error()}); return }
-		writeJSON(w, 200, m); return
+		if err != nil {
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		writeJSON(w, 200, m)
+		return
 
 	default:
 		writeJSON(w, 405, ErrorResp{"Method not allowed"})
@@ -1411,25 +1539,43 @@ func manufacturerGetOrVerify(w http.ResponseWriter, r *http.Request) {
 func manufacturerBatches(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodOptions:
-		returnOK(w); return
+		returnOK(w)
+		return
 	case http.MethodGet:
 		u := currentUser(r)
-		if u == "" { writeJSON(w, 401, ErrorResp{"missing user"}); return }
-		ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second); defer cancel()
+		if u == "" {
+			writeJSON(w, 401, ErrorResp{"missing user"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+		defer cancel()
 		list, err := fsListBatchesByOwner(ctx, u)
-		if err != nil { writeJSON(w, 500, ErrorResp{err.Error()}); return }
-		writeJSON(w, 200, list); return
+		if err != nil {
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		writeJSON(w, 200, list)
+		return
 	case http.MethodPost:
 		u := currentUser(r)
-		if u == "" { writeJSON(w, 401, ErrorResp{"missing user"}); return }
+		if u == "" {
+			writeJSON(w, 401, ErrorResp{"missing user"})
+			return
+		}
 		var body struct{ Title string `json:"title"` }
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeJSON(w, 400, ErrorResp{"invalid json"}); return
+			writeJSON(w, 400, ErrorResp{"invalid json"})
+			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second); defer cancel()
+		ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+		defer cancel()
 		b, err := fsCreateBatch(ctx, body.Title, u)
-		if err != nil { writeJSON(w, 500, ErrorResp{err.Error()}); return }
-		writeJSON(w, 201, b); return
+		if err != nil {
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		writeJSON(w, 201, b)
+		return
 	default:
 		writeJSON(w, 405, ErrorResp{"Method not allowed"})
 	}
@@ -1446,7 +1592,10 @@ type userCreateReq struct {
 }
 
 func userCreateProduct(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions { returnOK(w); return }
+	if r.Method == http.MethodOptions {
+		returnOK(w)
+		return
+	}
 	if r.Method != http.MethodPost {
 		writeJSON(w, 405, ErrorResp{"Method not allowed"})
 		return
@@ -1497,10 +1646,10 @@ func userCreateProduct(w http.ResponseWriter, r *http.Request) {
 
 		p := Product{
 			TokenID:      0,
-			BrandSlug:    "",           // юзерський продукт без бренду
+			BrandSlug:    "", // юзерський продукт без бренду
 			Meta:         meta,
 			SKU:          sku,
-			BatchID:      "",           // без партії у юзера
+			BatchID:      "", // без партії у юзера
 			IPFSHash:     ipfs,
 			SerialHash:   serH,
 			State:        StateCreated,
@@ -1547,41 +1696,66 @@ type companyCreateReq struct {
 func companyProducts(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodOptions:
-		returnOK(w); return
+		returnOK(w)
+		return
 
 	case http.MethodGet:
 		// /api/manufacturer/products?sku=ABC
 		u := currentUser(r)
-		if u == "" { writeJSON(w, 401, ErrorResp{"missing user"}); return }
+		if u == "" {
+			writeJSON(w, 401, ErrorResp{"missing user"})
+			return
+		}
 		sku := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("sku")))
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second); defer cancel()
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
 		list, err := fsListProductsByOwner(ctx, u, sku)
-		if err != nil { writeJSON(w, 500, ErrorResp{err.Error()}); return }
+		if err != nil {
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
 		writeJSON(w, 200, list)
 		return
 
 	case http.MethodPost:
 		u := currentUser(r)
-		if u == "" { writeJSON(w, 401, ErrorResp{"missing user"}); return }
+		if u == "" {
+			writeJSON(w, 401, ErrorResp{"missing user"})
+			return
+		}
 
 		var req companyCreateReq
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, 400, ErrorResp{"invalid json"}); return
+			writeJSON(w, 400, ErrorResp{"invalid json"})
+			return
 		}
 		name := strings.TrimSpace(req.Name)
-		if name == "" { writeJSON(w, 400, ErrorResp{"name required"}); return }
+		if name == "" {
+			writeJSON(w, 400, ErrorResp{"name required"})
+			return
+		}
 
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
 
 		brandSlug, ok, err := fsFirstBrandSlugByOwner(ctx, u)
-		if err != nil { writeJSON(w, 500, ErrorResp{err.Error()}); return }
-		if !ok   { writeJSON(w, 403, ErrorResp{"no brand for this account"}); return }
+		if err != nil {
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		if !ok {
+			writeJSON(w, 403, ErrorResp{"no brand for this account"})
+			return
+		}
 
 		manAt := strings.TrimSpace(req.ManufacturedAt)
-		if manAt == "" { manAt = time.Now().Format("2006-01-02") }
+		if manAt == "" {
+			manAt = time.Now().Format("2006-01-02")
+		}
 		total := req.EditionCount
-		if total <= 0 { total = 1 }
+		if total <= 0 {
+			total = 1
+		}
 		sku := strings.ToUpper(strings.TrimSpace(req.SKU))
 		batchID := strings.TrimSpace(req.BatchID)
 
@@ -1616,15 +1790,22 @@ func companyProducts(w http.ResponseWriter, r *http.Request) {
 				EditionTotal: total,
 			}
 			id, err := nextProductID(ctx)
-			if err != nil { writeJSON(w, 500, ErrorResp{err.Error()}); return }
+			if err != nil {
+				writeJSON(w, 500, ErrorResp{err.Error()})
+				return
+			}
 			p.TokenID = id
 			p.PublicURL = makePublicURL(id)
 			if _, err := fsCreateProduct(ctx, p); err != nil {
-				writeJSON(w, 500, ErrorResp{err.Error()}); return
+				writeJSON(w, 500, ErrorResp{err.Error()})
+				return
 			}
 			created = append(created, p)
 		}
-		if len(created) == 1 { writeJSON(w, 201, created[0]); return }
+		if len(created) == 1 {
+			writeJSON(w, 201, created[0])
+			return
+		}
 		writeJSON(w, 201, created)
 		return
 
@@ -1636,7 +1817,10 @@ func companyProducts(w http.ResponseWriter, r *http.Request) {
 // ==== PRODUCTS list (my; optional ?sku=) ====
 
 func productsList(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions { returnOK(w); return }
+	if r.Method == http.MethodOptions {
+		returnOK(w)
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeJSON(w, 405, ErrorResp{"Method not allowed"})
 		return
@@ -1663,7 +1847,10 @@ func productsList(w http.ResponseWriter, r *http.Request) {
 // ==== PRODUCT actions (/api/products/{id}/purchase) ====
 
 func productActions(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions { returnOK(w); return }
+	if r.Method == http.MethodOptions {
+		returnOK(w)
+		return
+	}
 
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/products/"), "/")
 	if len(parts) == 0 || parts[0] == "" {
@@ -1686,8 +1873,14 @@ func productActions(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 
 		p, ok, err := fsGetProduct(ctx, id)
-		if err != nil { writeJSON(w, 500, ErrorResp{err.Error()}); return }
-		if !ok       { writeJSON(w, 404, ErrorResp{"product not found"}); return }
+		if err != nil {
+			writeJSON(w, 500, ErrorResp{err.Error()})
+			return
+		}
+		if !ok {
+			writeJSON(w, 404, ErrorResp{"product not found"})
+			return
+		}
 		if strings.EqualFold(p.Owner, buyer) {
 			writeJSON(w, 409, ErrorResp{"already owned by you"})
 			return
@@ -1710,7 +1903,10 @@ func productActions(w http.ResponseWriter, r *http.Request) {
 // ==== VERIFY (/api/verify/{id}) ====
 
 func verifyProduct(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions { returnOK(w); return }
+	if r.Method == http.MethodOptions {
+		returnOK(w)
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeJSON(w, 405, ErrorResp{"Method not allowed"})
 		return
