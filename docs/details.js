@@ -1,120 +1,60 @@
-// docs/details.js
-import { api, qs, flash, makeQR, productUrl } from "./app.js";
-import { Auth } from "./firebase.js";
+import QRCode from "https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js";
 
-function ownerEmailFrom(data) {
-  // На сторінці verify бек не завжди повертає owner (аби не палити серійник і т.п.).
-  // Якщо є в payload — використаємо, інакше вважатимемо, що невідомо.
-  return (data.owner || "").trim().toLowerCase();
-}
+const el = (s, d=document)=>d.querySelector(s);
+const params = new URLSearchParams(location.search);
+const id = parseInt(params.get("id")||"0",10);
 
-function renderDetails(data) {
-  const box = qs("#details");
-  const actions = qs("#actions");
-  box.innerHTML = "";
-  actions.innerHTML = "";
+async function load(){
+  const box = el("#details");
+  const act = el("#actions");
+  if(!id){ box.textContent = "Bad id"; return; }
+  try{
+    const res = await fetch(`/api/verify/${id}`);
+    if(!res.ok) throw new Error((await res.json()).error||res.statusText);
+    const data = await res.json();
 
-  // Картинка
-  if (data.metadata?.image) {
-    const img = document.createElement("img");
-    img.src = data.metadata.image;
-    img.alt = data.metadata.name || "Зображення";
-    img.className = "cover";
-    box.append(img);
-  }
+    const img = data.metadata?.image ? `<img src="${data.metadata.image}" alt="" style="max-width:200px;border-radius:12px">`:"";
+    const certs = (data.metadata?.certificates||[]).map(c=>`<li>${c}</li>`).join("") || "—";
 
-  // Поля
-  const meta = [
-    data.metadata?.name || "Без назви",
-    `Вироблено: ${data.metadata?.manufacturedAt || "—"}`,
-    `Статус: ${data.state}`,
-    `Токен: #${data.tokenId} (${data.editionNo}/${data.editionTotal})`,
-  ];
-  for (const line of meta) {
-    const div = document.createElement("div");
-    div.className = "meta";
-    div.textContent = line;
-    box.append(div);
-  }
+    box.innerHTML = `
+      <div class="row">
+        <div>${img}</div>
+        <div>
+          <h3>${data.metadata?.name||"ITEM"}</h3>
+          <p><b>Token:</b> ${data.tokenId}</p>
+          <p><b>Brand:</b> ${data.brandSlug||"—"}</p>
+          <p><b>SKU:</b> ${data.sku||"—"}</p>
+          <p><b>Edition:</b> ${data.editionNo||1}/${data.editionTotal||1}</p>
+          <p><b>Manufactured:</b> ${data.metadata?.manufacturedAt||"—"}</p>
+          ${data.metadata?.serial ? `<p><b>Serial:</b> ${data.metadata.serial}</p>` : `<p class="muted">Серійник приховано</p>`}
+          <p><b>State:</b> <span class="tag">${data.state}</span></p>
+          <p><b>Certificates:</b></p>
+          <ul>${certs}</ul>
+        </div>
+      </div>
+      <div class="mt">
+        <canvas id="qr"></canvas>
+        <div class="muted">Скануй, щоб відкрити цю сторінку</div>
+      </div>
+    `;
 
-  // QR на цю ж сторінку (щоб покупець міг зісканувати)
-  const qrBox = document.createElement("div");
-  qrBox.className = "qr";
-  const target = productUrl(data.tokenId);
-  makeQR(qrBox, target, 220);
-  box.append(qrBox);
+    // QR з поточного URL (деталі)
+    const c = el("#qr");
+    await QRCode.toCanvas(c, location.href, { margin:1, scale:4 });
 
-  // Логіка показу кнопки "Забрати продукт собі"
-  const currentEmail = (Auth.user?.email || "").trim().toLowerCase();
-  const owner = ownerEmailFrom(data);
+    act.innerHTML = data.canAcquire
+      ? `<form id="buy"><button class="btn">Отримати у власність</button></form>`
+      : `<span class="muted">Ви вже власник або неавторизовані</span>`;
 
-  // 1) якщо не залогінений — покажемо кнопку входу
-  if (!currentEmail) {
-    const btn = document.createElement("button");
-    btn.textContent = "Увійти, щоб забрати продукт";
-    btn.addEventListener("click", () => {
-      // Простіше — дернемо стандартний логін
-      const login = document.getElementById("loginBtn");
-      if (login) login.click();
-    });
-    actions.append(btn);
-    return;
-  }
-
-  // 2) якщо власник вже ви — кнопку не показуємо
-  if (owner && owner === currentEmail) {
-    const note = document.createElement("div");
-    note.className = "muted";
-    note.textContent = "Цей продукт вже належить вам.";
-    actions.append(note);
-    return;
-  }
-
-  // 3) у бек-відповіді може бути canAcquire; якщо є — врахуємо
-  const canAcquire = data.canAcquire !== undefined ? !!data.canAcquire : true;
-
-  if (!canAcquire) {
-    // Наприклад, бек сказав “не можна”. Покажемо пояснення.
-    const note = document.createElement("div");
-    note.className = "muted";
-    note.textContent = "Зараз не можна забрати цей продукт. Оновіть сторінку або спробуйте пізніше.";
-    actions.append(note);
-    return;
-  }
-
-  // 4) показуємо кнопку покупки
-  const btn = document.createElement("button");
-  btn.textContent = "Забрати продукт собі";
-  btn.addEventListener("click", async () => {
-    btn.disabled = true;
-    const oldText = btn.textContent;
-    btn.textContent = "Операція…";
-    try {
-      await api(`/api/products/${data.tokenId}/purchase`, { method: "POST" });
-      flash("Готово! Продукт тепер ваш.");
-      // Після покупки перезавантажимо, щоб побачити новий стан
+    const buy = el("#buy");
+    if (buy) buy.addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      const res = await fetch(`/api/products/${id}/purchase`, { method:"POST", headers:{ "X-User": "" }});
+      if(!res.ok){ alert("Помилка: " + (await res.text())); return; }
       location.reload();
-    } catch (e) {
-      flash(e.message || "Помилка під час покупки");
-      btn.disabled = false;
-      btn.textContent = oldText;
-    }
-  });
-  actions.append(btn);
-}
-
-async function init() {
-  const url = new URL(location.href);
-  const id = url.searchParams.get("id");
-  if (!id) {
-    qs("#details").textContent = "Не передано id";
-    return;
-  }
-  try {
-    const data = await api(`/api/verify/${encodeURIComponent(id)}`);
-    renderDetails(data);
-  } catch (e) {
-    qs("#details").textContent = e.message;
+    });
+  }catch(e){
+    box.textContent = e.message || "Помилка завантаження";
   }
 }
-init();
+load();
