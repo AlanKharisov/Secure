@@ -4,15 +4,15 @@
   <meta charset="utf-8" />
   <title>MARKI Secure — Перевірка</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
 <header class="topbar">
   <div class="brand">Перевірка продукту</div>
   <nav class="nav">
     <a href="/index.html">Головна</a>
-    <button id="loginBtn">Увійти</button>
-    <button id="logoutBtn" class="hidden">Вийти</button>
+    <button id="loginBtn" class="btn">Увійти</button>
+    <button id="logoutBtn" class="btn secondary hidden">Вийти</button>
   </nav>
 </header>
 
@@ -23,6 +23,7 @@
   </section>
 </main>
 
+<!-- важливо: firebase + app доступні, навіть якщо details.js їх не використовує -->
 <script type="module" src="/firebase.js"></script>
 <script type="module" src="/app.js"></script>
 <script type="module" src="/details.js"></script>
