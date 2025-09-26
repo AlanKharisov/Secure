@@ -60,3 +60,6 @@ label{display:flex;flex-direction:column;gap:6px;font-size:13px}
 .tag-pending{background:var(--tag-pend);border-color:#ffe2a0}
 
 .mt{margin-top:10px}
+/* Перемикаємо кнопки за класом body.authed (резервна логіка до JS) */
+body.authed #loginBtn { display: none !important; }
+body:not(.authed) #logoutBtn { display: none !important; }
