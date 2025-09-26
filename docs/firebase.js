@@ -28,7 +28,8 @@ const firebaseConfig = {
   apiKey: "AIzaSyBknpQ46_NXV0MisgfjZ7Qs-XS9jhn7hws",
   authDomain: "fir-d9f54.firebaseapp.com",
   projectId: "fir-d9f54",
-  storageBucket: "fir-d9f54.appspot.com", // ← ІД бакета, не URL
+  // ВАЖЛИВО: у тебе бакет firebasestorage.app (не appspot.com)
+  storageBucket: "fir-d9f54.firebasestorage.app",
   messagingSenderId: "797519127919",
   appId: "1:797519127919:web:016740e5f7f6fe333eb49a",
   measurementId: "G-LHZJH1VPG6",
@@ -37,7 +38,7 @@ const firebaseConfig = {
 console.log("[Auth] init firebase…");
 const app = initializeApp(firebaseConfig);
 
-/* ===== 1.1) FIX reCAPTCHA loader: polyfill globalThis.process ===== */
+/* ===== 1.1) FIX для reCAPTCHA loader: polyfill globalThis.process ===== */
 if (typeof globalThis.process === "undefined") {
   globalThis.process = { env: {} };
 }
@@ -49,20 +50,17 @@ const RECAPTCHA_V3_SITE_KEY = "6LcJ2dUrAAAAAKpA74yjOw0txD1WBTNITp0FFFC7";
 let appCheck = null;
 try {
   // Якщо в index.html задано self.FIREBASE_APPCHECK_DEBUG_TOKEN (рядок або true),
-  // SDK автоматично перейде в debug-режим (true згенерує токен в консолі).
+  // SDK автоматично увімкне debug-режим. (У проді прибери це.)
   appCheck = initializeAppCheck(app, {
     provider: new ReCaptchaV3Provider(RECAPTCHA_V3_SITE_KEY),
     isTokenAutoRefreshEnabled: true,
   });
 
-  // Спробуємо жорстко витягнути токен і залогувати (для діагностики)
+  // Діагностика: витягнемо токен і залогаймо префікс
   getAppCheckToken(appCheck, /*forceRefresh*/ true)
     .then(t => {
-      if (t?.token) {
-        console.log("[AppCheck] token (head):", t.token.slice(0, 18) + "…");
-      } else {
-        console.warn("[AppCheck] no token received");
-      }
+      if (t?.token) console.log("[AppCheck] token (head):", t.token.slice(0, 18) + "…");
+      else console.warn("[AppCheck] no token received");
     })
     .catch(e => console.warn("[AppCheck] getToken error:", e));
 } catch (e) {
@@ -71,7 +69,8 @@ try {
 
 /* ===================== 3) SERVICES ===================== */
 const auth = getAuth(app);
-const storage = getStorage(app);
+// Явно вкажемо правильний бакет (gs://fir-d9f54.firebasestorage.app)
+const storage = getStorage(app, "gs://fir-d9f54.firebasestorage.app");
 
 /* ===================== 4) AUTH (Google) ===================== */
 const provider = new GoogleAuthProvider();
@@ -181,4 +180,3 @@ export async function deleteFile(path) {
 export async function ensureLoggedIn() {
   if (!Auth.user) await Auth.signIn();
 }
-
