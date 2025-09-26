@@ -7,17 +7,18 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <!-- фрагмент header у /index.html -->
-<header class="topbar">
-  <div class="brand">MARKI Secure</div>
-  <nav class="nav">
-    <a href="#" data-nav="profile">Профіль</a>
-    <a href="#" data-nav="company">Компанія</a>
-    <a href="#" data-nav="admin" style="display:none">Адмін</a>
-  </nav>
+  <header class="topbar">
+    <div class="brand">MARKI Secure</div>
+
+    <nav class="nav">
+      <a href="#" data-nav="profile" class="active">Профіль</a>
+      <a href="#" data-nav="company">Компанія</a>
+      <a href="#" data-nav="admin" style="display:none">Адмін</a>
+    </nav>
+
     <div class="auth">
       <button id="loginBtn" class="btn">Увійти</button>
-    <!-- ВАЖЛИВО: забрати .hidden -->
+      <!-- ВАЖЛИВО: без .hidden — видимість керується скриптом -->
       <button id="logoutBtn" class="btn secondary">Вийти</button>
     </div>
   </header>
@@ -36,15 +37,27 @@
         <h3>+ Створити як користувач</h3>
         <form id="userProductForm" class="form">
           <div class="grid">
-            <label>Назва <input name="name" required placeholder="Назва товару" /></label>
-            <label>SKU <input name="sku" placeholder="Необовʼязково" /></label>
-            <label>Вироблено (YYYY-MM-DD) <input name="manufacturedAt" placeholder="2025-01-01" /></label>
-            <label>Зображення URL <input name="image" placeholder="https://..." /></label>
-            <label>Кількість екземплярів <input name="editionCount" type="number" min="1" value="1" /></label>
-            <label>Сертифікати (через кому) <input name="certificates" placeholder="ISO9001, CE" /></label>
+            <label>Назва
+              <input name="name" required placeholder="Назва товару" />
+            </label>
+            <label>SKU
+              <input name="sku" placeholder="Необовʼязково" />
+            </label>
+            <label>Вироблено (YYYY-MM-DD)
+              <input name="manufacturedAt" placeholder="2025-01-01" />
+            </label>
+            <label>Зображення URL
+              <input name="image" placeholder="https://..." />
+            </label>
+            <label>Кількість екземплярів
+              <input name="editionCount" type="number" min="1" value="1" />
+            </label>
+            <label>Сертифікати (через кому)
+              <input name="certificates" placeholder="ISO9001, CE" />
+            </label>
           </div>
           <div class="row">
-            <button class="btn">Створити</button>
+            <button class="btn" type="submit">Створити</button>
             <span id="userCreateMsg" class="muted"></span>
           </div>
         </form>
@@ -58,16 +71,36 @@
           <h3>Подати заявку на компанію</h3>
           <form id="companyForm" class="form">
             <div class="grid">
-              <label>Імʼя контактної особи <input name="fullName" required /></label>
-              <label>Email контактний <input name="contactEmail" type="email" required /></label>
-              <label>Юридична назва <input name="legalName" required /></label>
-              <label>Брендова назва <input name="brandName" placeholder="як на етикетці" /></label>
-              <label>Країна <input name="country" /></label>
-              <label>VAT <input name="vat" /></label>
-              <label>Реєстраційний номер <input name="regNumber" /></label>
-              <label>Сайт <input name="site" placeholder="https://..." /></label>
-              <label>Телефон <input name="phone" /></label>
-              <label>Адреса <input name="address" /></label>
+              <label>Імʼя контактної особи
+                <input name="fullName" required />
+              </label>
+              <label>Email контактний
+                <input name="contactEmail" type="email" required />
+              </label>
+              <label>Юридична назва
+                <input name="legalName" required />
+              </label>
+              <label>Брендова назва
+                <input name="brandName" placeholder="як на етикетці" />
+              </label>
+              <label>Країна
+                <input name="country" />
+              </label>
+              <label>VAT
+                <input name="vat" />
+              </label>
+              <label>Реєстраційний номер
+                <input name="regNumber" />
+              </label>
+              <label>Сайт
+                <input name="site" placeholder="https://..." />
+              </label>
+              <label>Телефон
+                <input name="phone" />
+              </label>
+              <label>Адреса
+                <input name="address" />
+              </label>
             </div>
 
             <div class="card flat">
@@ -82,7 +115,7 @@
             </div>
 
             <div class="row">
-              <button class="btn">Надіслати заявку</button>
+              <button class="btn" type="submit">Надіслати заявку</button>
             </div>
           </form>
         </div>
@@ -93,7 +126,7 @@
             <div id="myBatches" class="list"></div>
             <form id="batchForm" class="form-inline">
               <input name="title" placeholder="Нова партія..." />
-              <button class="btn">Створити партію</button>
+              <button class="btn" type="submit">Створити партію</button>
             </form>
           </div>
 
@@ -101,17 +134,29 @@
             <h3>Товари компанії</h3>
             <div class="row">
               <input id="manuSkuFilter" placeholder="Фільтр за SKU" />
-              <button id="manuSkuBtn" class="btn">Фільтрувати</button>
+              <button id="manuSkuBtn" class="btn" type="button">Фільтрувати</button>
             </div>
 
             <form id="companyProductForm" class="form">
               <div class="grid">
-                <label>Назва <input name="name" required /></label>
-                <label>SKU <input name="sku" /></label>
-                <label>Вироблено (YYYY-MM-DD) <input name="manufacturedAt" /></label>
-                <label>Зображення URL <input name="image" placeholder="https://..." /></label>
-                <label>Кількість екземплярів <input name="editionCount" type="number" min="1" value="1" /></label>
-                <label>Сертифікати (через кому) <input name="certificates" /></label>
+                <label>Назва
+                  <input name="name" required />
+                </label>
+                <label>SKU
+                  <input name="sku" />
+                </label>
+                <label>Вироблено (YYYY-MM-DD)
+                  <input name="manufacturedAt" />
+                </label>
+                <label>Зображення URL
+                  <input name="image" placeholder="https://..." />
+                </label>
+                <label>Кількість екземплярів
+                  <input name="editionCount" type="number" min="1" value="1" />
+                </label>
+                <label>Сертифікати (через кому)
+                  <input name="certificates" />
+                </label>
                 <label>Партія
                   <select name="batchId">
                     <option value="">— без партії —</option>
@@ -119,7 +164,7 @@
                 </label>
               </div>
               <div class="row">
-                <button class="btn">Створити товар(и)</button>
+                <button class="btn" type="submit">Створити товар(и)</button>
                 <span id="companyCreateMsg" class="muted"></span>
               </div>
             </form>
@@ -139,8 +184,10 @@
     </section>
   </main>
 
-  <!-- скрипти -->
+  <!-- Скрипти (ES-модулі) -->
   <script type="module" src="/firebase.js"></script>
   <script type="module" src="/main.js"></script>
+
+  <noscript>Для роботи застосунку увімкніть JavaScript.</noscript>
 </body>
 </html>
