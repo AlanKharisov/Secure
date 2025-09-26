@@ -7,16 +7,18 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">MARKI Secure</div>
-    <nav class="nav">
-      <a href="#" data-nav="profile">Профіль</a>
-      <a href="#" data-nav="company">Компанія</a>
-      <a href="#" data-nav="admin" style="display:none">Адмін</a>
-    </nav>
+  <!-- фрагмент header у /index.html -->
+<header class="topbar">
+  <div class="brand">MARKI Secure</div>
+  <nav class="nav">
+    <a href="#" data-nav="profile">Профіль</a>
+    <a href="#" data-nav="company">Компанія</a>
+    <a href="#" data-nav="admin" style="display:none">Адмін</a>
+  </nav>
     <div class="auth">
       <button id="loginBtn" class="btn">Увійти</button>
-      <button id="logoutBtn" class="btn secondary hidden">Вийти</button>
+    <!-- ВАЖЛИВО: забрати .hidden -->
+      <button id="logoutBtn" class="btn secondary">Вийти</button>
     </div>
   </header>
 
