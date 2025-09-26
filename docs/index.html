@@ -5,6 +5,12 @@
   <title>MARKI Secure</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="stylesheet" href="/styles.css" />
+
+  <!-- DEBUG App Check token -->
+  <script>
+    // Використовуємо конкретний токен (НЕ = true!)
+    self.FIREBASE_APPCHECK_DEBUG_TOKEN = "2e3716fb-038e-4ca9-9592-44742d555191";
+  </script>
 </head>
 <body>
   <header class="topbar">
@@ -137,17 +143,7 @@
     </section>
   </main>
 
-  <!-- ВАЖЛИВО: DEBUG TOKEN ПЕРЕД firebase.js -->
-  <script>
-    // Варіант 1 (разово): виставляє прапорець, після перезавантаження Firebase покаже токен у Console.
-    // Потім додай його в Firebase → App Check → Debug tokens.
-    self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-
-    // АБО Варіант 2 (постійно під час деву): встав свій збережений токен рядком і закоментуй рядок вище.
-    // self.FIREBASE_APPCHECK_DEBUG_TOKEN = "ВСТАВ_СКОПІЙОВАНИЙ_ДОВГИЙ_ТОКЕН";
-  </script>
-
-  <!-- Скрипти (порядок критичний) -->
+  <!-- скрипти -->
   <script type="module" src="/firebase.js"></script>
   <script type="module" src="/main.js"></script>
 </body>
