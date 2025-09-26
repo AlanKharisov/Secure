@@ -1,4 +1,4 @@
-// /firebase.js — повний файл (CDN v10) без App Check
+// /firebase.js — Firebase App + App Check (reCAPTCHA v3) + Google Auth + Storage (CDN v10)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
 import {
   getAuth,
@@ -17,13 +17,17 @@ import {
   getDownloadURL,
   deleteObject,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-storage.js";
+import {
+  initializeAppCheck,
+  ReCaptchaV3Provider,
+} from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app-check.js";
 
-// ---------------- Firebase config ----------------
+/* === 1) CONFIG (storageBucket — ІД бакета, НЕ URL) === */
 const firebaseConfig = {
   apiKey: "AIzaSyBknpQ46_NXV0MisgfjZ7Qs-XS9jhn7hws",
   authDomain: "fir-d9f54.firebaseapp.com",
   projectId: "fir-d9f54",
-  storageBucket: "fir-d9f54.appspot.com", // важливо: ІД бакета, не URL
+  storageBucket: "fir-d9f54.appspot.com",
   messagingSenderId: "797519127919",
   appId: "1:797519127919:web:016740e5f7f6fe333eb49a",
   measurementId: "G-LHZJH1VPG6",
@@ -32,15 +36,32 @@ const firebaseConfig = {
 console.log("[Auth] init firebase…");
 const app = initializeApp(firebaseConfig);
 
-// ---------------- Services ----------------
+/* === 2) App Check (reCAPTCHA v3 — невидима) ===
+   - Встав свій SITE KEY нижче (з консолі reCAPTCHA v3).
+   - Якщо Storage у App Check в режимі Enforce — це ОБОВ’ЯЗКОВО.
+*/
+const RECAPTCHA_V3_SITE_KEY = "6LcJ2dUrAAAAAKpA74yjOw0txD1WBTNITp0FFFC7";
+if (RECAPTCHA_V3_SITE_KEY && !RECAPTCHA_V3_SITE_KEY.includes("PASTE_")) {
+  initializeAppCheck(app, {
+    provider: new ReCaptchaV3Provider(RECAPTCHA_V3_SITE_KEY),
+    isTokenAutoRefreshEnabled: true,
+  });
+} else {
+  console.warn("[AppCheck] SITE_KEY не заданий. Якщо Storage=Enforce — додай ключ.");
+  // TEMP DEV: у консолі браузера можна виконати:
+  // self.FIREBASE_APPCHECK_DEBUG_TOKEN = true
+  // і додати токен у Firebase Console → App Check → Debug tokens
+}
+
+/* === 3) Services === */
 const auth = getAuth(app);
 const storage = getStorage(app);
 
-// ---------------- Google provider ----------------
+/* === 4) Google Sign-In === */
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
 
-// ---------------- Auth wrapper ----------------
+/* === 5) Auth wrapper === */
 let signingIn = false;
 export const Auth = {
   user: null,
@@ -52,6 +73,7 @@ export const Auth = {
       await signInWithPopup(auth, provider);
     } catch (err) {
       const code = err?.code || "";
+      // fallback на redirect, якщо попап блокується/домен не дозволений
       if (
         code === "auth/popup-blocked" ||
         code === "auth/operation-not-supported-in-this-environment" ||
@@ -80,13 +102,13 @@ export const Auth = {
       this.user = u || null;
       console.log("[Auth] onChange:", this.user?.email || null);
 
-      // Тумблер стану для UI
+      // Клас на body для CSS-правил (опційно)
       document.body.classList.toggle("authed", !!u);
 
-      // Безпечне перемикання кнопок (навіть якщо у них є клас .hidden)
+      // Безпечне перемикання кнопок (не залежимо від класу .hidden)
       const loginBtn = document.getElementById("loginBtn");
       const logoutBtn = document.getElementById("logoutBtn");
-      if (loginBtn) loginBtn.style.display = u ? "none" : "";
+      if (loginBtn)  loginBtn.style.display  = u ? "none" : "";
       if (logoutBtn) logoutBtn.style.display = u ? "" : "none";
 
       cb(this.user);
@@ -94,70 +116,67 @@ export const Auth = {
   },
 };
 
-// Redirect fallback (якщо попап заблоковано)
+// Redirect fallback (якщо попап не спрацював)
 getRedirectResult(auth).catch((e) =>
   console.warn("[Auth] redirect:", e?.message || e)
 );
 
-// Автопідв’язка кнопок (якщо є у DOM)
+// Автопідв’язка кнопок за ID, якщо є у DOM
 document.addEventListener("DOMContentLoaded", () => {
-  const loginBtn = document.getElementById("loginBtn");
-  const logoutBtn = document.getElementById("logoutBtn");
-  loginBtn?.addEventListener("click", () => Auth.signIn());
-  logoutBtn?.addEventListener("click", () => Auth.signOut());
+  document.getElementById("loginBtn")?.addEventListener("click", () => Auth.signIn());
+  document.getElementById("logoutBtn")?.addEventListener("click", () => Auth.signOut());
 });
 
-// ---------------- Storage helpers ----------------
+/* === 6) Storage helpers === */
 
-/**
- * Завантаження файлу у brand_proofs/<uid>/<ts>.<ext>
- * Повертає { path, url }
- */
+// Завантажити файл у brand_proofs/<uid>/<timestamp>.<ext> → { path, url }
 export async function uploadFile(file, pathPrefix = "brand_proofs") {
   if (!file) throw new Error("Файл не обрано");
   if (!Auth.user) throw new Error("Спочатку увійдіть у свій акаунт");
 
   const uid = Auth.user.uid;
   const ext = (file.name?.split(".").pop() || "bin").toLowerCase();
-  const ts = Date.now();
+  const ts  = Date.now();
   const path = `${pathPrefix}/${uid}/${ts}.${ext}`;
 
   const fileRef = sRef(storage, path);
   await uploadBytes(fileRef, file, {
     contentType: file.type || "application/octet-stream",
   });
-
   const url = await getDownloadURL(fileRef);
   return { path, url };
 }
 
+// Завантажити Blob (наприклад, canvas.toBlob(...))
 export async function uploadBlob(blob, pathPrefix = "brand_proofs", ext = "png") {
   if (!blob) throw new Error("Порожній blob");
   if (!Auth.user) throw new Error("Спочатку увійдіть у свій акаунт");
 
   const uid = Auth.user.uid;
-  const ts = Date.now();
+  const ts  = Date.now();
   const path = `${pathPrefix}/${uid}/${ts}.${ext}`;
 
   const fileRef = sRef(storage, path);
   await uploadBytes(fileRef, blob, {
     contentType: blob.type || `image/${ext}`,
   });
-
   const url = await getDownloadURL(fileRef);
   return { path, url };
 }
 
+// Отримати публічний URL за шляхом у бакеті
 export async function getPublicURL(path) {
   const fileRef = sRef(storage, path);
   return await getDownloadURL(fileRef);
 }
 
+// Видалити файл за шляхом
 export async function deleteFile(path) {
   const fileRef = sRef(storage, path);
   await deleteObject(fileRef);
 }
 
+// Зручний хелпер: гарантувати вхід перед дією
 export async function ensureLoggedIn() {
   if (!Auth.user) {
     await Auth.signIn();
