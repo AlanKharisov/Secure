@@ -20,6 +20,7 @@ import {
 import {
   initializeAppCheck,
   ReCaptchaV3Provider,
+  getToken as getAppCheckToken,
 } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app-check.js";
 
 /* ===================== 1) CONFIG ===================== */
@@ -27,7 +28,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyBknpQ46_NXV0MisgfjZ7Qs-XS9jhn7hws",
   authDomain: "fir-d9f54.firebaseapp.com",
   projectId: "fir-d9f54",
-  storageBucket: "fir-d9f54.appspot.com", // ← саме ІД бакета, не URL
+  storageBucket: "fir-d9f54.appspot.com", // ← ІД бакета, не URL
   messagingSenderId: "797519127919",
   appId: "1:797519127919:web:016740e5f7f6fe333eb49a",
   measurementId: "G-LHZJH1VPG6",
@@ -36,29 +37,36 @@ const firebaseConfig = {
 console.log("[Auth] init firebase…");
 const app = initializeApp(firebaseConfig);
 
-/* ===== FIX reCAPTCHA loader: polyfill globalThis.process ===== */
+/* ===== 1.1) FIX reCAPTCHA loader: polyfill globalThis.process ===== */
 if (typeof globalThis.process === "undefined") {
   globalThis.process = { env: {} };
 }
 
 /* ===================== 2) APP CHECK (reCAPTCHA v3) ===================== */
-/* ВСТАВ СВІЙ SITE KEY з reCAPTCHA v3 (НЕ secret). Якщо Storage у App Check = Enforce — це обовʼязково. */
+/** ВСТАВ свій reCAPTCHA v3 Site Key (НЕ secret). Для Enforce це обовʼязково. */
 const RECAPTCHA_V3_SITE_KEY = "6LcJ2dUrAAAAAKpA74yjOw0txD1WBTNITp0FFFC7";
 
-if (RECAPTCHA_V3_SITE_KEY && !RECAPTCHA_V3_SITE_KEY.includes("PASTE_")) {
-  try {
-    initializeAppCheck(app, {
-      provider: new ReCaptchaV3Provider(RECAPTCHA_V3_SITE_KEY),
-      isTokenAutoRefreshEnabled: true,
-    });
-  } catch (e) {
-    console.warn("[AppCheck] init failed:", e);
-  }
-} else {
-  console.warn("[AppCheck] SITE_KEY не заданий. Якщо Storage=Enforce — додай ключ або увімкни Debug Token.");
-  // Для дев-режиму: в консолі браузера один раз виконай:
-  // self.FIREBASE_APPCHECK_DEBUG_TOKEN = true
-  // Потім додай згенерований токен у Firebase Console → App Check → Debug tokens.
+let appCheck = null;
+try {
+  // Якщо в index.html задано self.FIREBASE_APPCHECK_DEBUG_TOKEN (рядок або true),
+  // SDK автоматично перейде в debug-режим (true згенерує токен в консолі).
+  appCheck = initializeAppCheck(app, {
+    provider: new ReCaptchaV3Provider(RECAPTCHA_V3_SITE_KEY),
+    isTokenAutoRefreshEnabled: true,
+  });
+
+  // Спробуємо жорстко витягнути токен і залогувати (для діагностики)
+  getAppCheckToken(appCheck, /*forceRefresh*/ true)
+    .then(t => {
+      if (t?.token) {
+        console.log("[AppCheck] token (head):", t.token.slice(0, 18) + "…");
+      } else {
+        console.warn("[AppCheck] no token received");
+      }
+    })
+    .catch(e => console.warn("[AppCheck] getToken error:", e));
+} catch (e) {
+  console.warn("[AppCheck] init failed:", e);
 }
 
 /* ===================== 3) SERVICES ===================== */
@@ -104,7 +112,7 @@ export const Auth = {
       this.user = u || null;
       console.log("[Auth] onChange:", this.user?.email || null);
 
-      // клас для CSS (опційно) і перемикання видимості кнопок
+      // Перемикаємо кнопки, якщо є
       document.body.classList.toggle("authed", !!u);
       const loginBtn  = document.getElementById("loginBtn");
       const logoutBtn = document.getElementById("logoutBtn");
@@ -118,7 +126,7 @@ export const Auth = {
 
 getRedirectResult(auth).catch(e => console.warn("[Auth] redirect:", e?.message || e));
 
-// Автопідʼєднання кнопок, якщо вони є в DOM
+/* Автопідʼєднання кнопок, якщо вони є в DOM */
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("loginBtn")?.addEventListener("click", () => Auth.signIn());
   document.getElementById("logoutBtn")?.addEventListener("click", () => Auth.signOut());
@@ -173,3 +181,4 @@ export async function deleteFile(path) {
 export async function ensureLoggedIn() {
   if (!Auth.user) await Auth.signIn();
 }
+
