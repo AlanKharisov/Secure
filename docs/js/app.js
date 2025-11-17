@@ -1,5 +1,5 @@
 // app.js — легкий API-клієнт з Bearer-токеном Firebase
-import { Auth } from "/firebase.js";
+import { Auth } from "/js/firebase.js";
 
 // якщо треба форс-дев для локальних тестів: постав true
 const DEV_ALLOW_XUSER_FALLBACK = false;
