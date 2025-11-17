@@ -2,337 +2,354 @@
 <html lang="uk">
 <head>
   <meta charset="utf-8" />
-  <title>MARKI Secure — Кабінет</title>
+  <title>MARKI Secure — Dashboard</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/styles.css" />
-
-  <!-- DEBUG App Check token (DEV ONLY) -->
-  <script>
-    self.FIREBASE_APPCHECK_DEBUG_TOKEN = "2e3716fb-038e-4ca9-9592-44742d555191";
-  </script>
+  <link rel="stylesheet" href="/css/styles.css" />
 </head>
-<body class="mk-dashboard">
-<div class="app-shell">
+<body data-theme="light">
 
-  <!-- TOP BAR -->
+<!-- Ліва панель -->
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-logo">MS</div>
+    <div class="sidebar-title">
+      <div class="sidebar-app">MARKI Secure</div>
+      <div class="sidebar-sub">Business Panel</div>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-group">
+      <div class="nav-group-title">Overview</div>
+      <a href="#" class="nav-link active" data-nav="overview">
+        <span class="nav-dot"></span>
+        Business overview
+      </a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-title">User</div>
+      <a href="#" class="nav-link" data-nav="profile">Профіль</a>
+      <a href="#" class="nav-link" data-nav="products">Мої товари</a>
+      <a href="#" class="nav-link" data-nav="company">Компанія</a>
+      <a href="#" class="nav-link" data-nav="batches">Мої партії</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-title">Admin</div>
+      <a href="#" class="nav-link" data-nav="messages">Повідомлення</a>
+      <a href="#" class="nav-link" data-nav="settings">Налаштування</a>
+    </div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <button id="loginBtn" class="btn full">Увійти</button>
+    <button id="logoutBtn" class="btn full secondary" style="display:none">Вийти</button>
+    <div class="sidebar-meta muted tiny">
+      © MARKI Secure
+    </div>
+  </div>
+</aside>
+
+<!-- затемнення для мобільного сайдбара -->
+<div class="sidebar-overlay"></div>
+
+<!-- Основний лейаут -->
+<div class="layout">
+
+  <!-- Верхній бар -->
   <header class="topbar">
-    <div class="topbar-left">
-      <div class="brand-pill">
-        <span class="brand-dot"></span>
-        <span class="brand-name">MARKI Secure</span>
-      </div>
-      <div class="topbar-page-title">
-        <span class="muted small">Панель керування</span>
-        <h1>Огляд акаунта</h1>
+    <button id="sidebarToggle" class="icon-btn">
+      ☰
+    </button>
+
+    <div class="topbar-main">
+      <div class="topbar-greeting">
+        <div id="topGreeting" class="top-title">Hello, there!</div>
+        <div class="top-sub">Here’s your overview of MARKI Secure.</div>
       </div>
     </div>
 
     <div class="topbar-right">
-      <div class="topbar-user">
-        <div class="avatar-placeholder">MS</div>
-        <div class="user-meta">
-          <span id="topbarEmail" class="user-email muted">Неавторизований</span>
-          <span id="topbarRole" class="user-role">Гість</span>
+      <button id="themeToggle" class="icon-btn" title="Змінити тему">
+        🌙
+      </button>
+
+      <div class="top-user">
+        <div id="topUserAvatar" class="avatar-circle">U</div>
+        <div class="top-user-info">
+          <div id="topUserName" class="top-user-name">User</div>
+          <div id="topUserEmail" class="top-user-email">user@example.com</div>
         </div>
-      </div>
-      <div class="auth">
-        <button id="loginBtn" class="btn">Увійти</button>
-        <button id="logoutBtn" class="btn secondary hidden">Вийти</button>
       </div>
     </div>
   </header>
 
-  <div class="shell-main">
-    <!-- SIDEBAR -->
-    <aside class="sidebar">
-      <div class="sidebar-section sidebar-main-nav">
-        <div class="sidebar-title">Навігація</div>
-        <button class="nav-item active" data-nav="profile">
-          <span class="nav-icon">🏠</span>
-          <span>Огляд</span>
-        </button>
-        <button class="nav-item" data-nav="company">
-          <span class="nav-icon">🏭</span>
-          <span>Компанія</span>
-        </button>
-        <button class="nav-item" data-nav="admin" style="display:none">
-          <span class="nav-icon">🛡</span>
-          <span>Адмін</span>
-        </button>
-      </div>
+  <!-- Контент -->
+  <main class="main">
 
-      <div class="sidebar-section">
-        <div class="sidebar-title">Статус</div>
-        <div class="sidebar-status">
-          <div class="status-line">
-            <span class="muted small">Бренд</span>
-            <span class="tag tag-pill" id="sidebarBrandTag">немає</span>
-          </div>
-          <div class="status-line">
-            <span class="muted small">Роль</span>
-            <span class="tag tag-pill" id="sidebarRoleTag">user</span>
-          </div>
-          <div class="status-line">
-            <span class="muted small">Заявка компанії</span>
-            <span class="tag tag-pill tag-pending" id="sidebarAppTag">—</span>
-          </div>
+    <!-- ============ OVERVIEW (ADMIN) ============ -->
+    <section class="view" data-view="overview">
+      <div class="section-header">
+        <h1>Business overview</h1>
+        <div class="section-actions">
+          <label class="field-inline">
+            <span>Період</span>
+            <select id="overviewRange">
+              <option value="year">Цей рік</option>
+              <option value="month">Цей місяць</option>
+              <option value="day">Сьогодні</option>
+              <option value="all">Весь час</option>
+            </select>
+          </label>
         </div>
       </div>
 
-      <div class="sidebar-section sidebar-footer">
-        <div class="muted tiny">© MARKI Secure</div>
-        <div class="muted tiny">v1.0 · Firestore backend</div>
+      <div id="overviewStats" class="grid stats-grid">
+        <!-- main.js рендерить картки -->
       </div>
-    </aside>
 
-    <!-- MAIN CONTENT -->
-    <main class="dashboard">
-
-      <!-- PROFILE VIEW -->
-      <section class="view" data-view="profile">
-        <!-- KPI ROW -->
-        <div class="kpi-row">
-          <div class="kpi-card card">
-            <div class="kpi-label">Мої продукти</div>
-            <div class="kpi-value" id="kpiMyProducts">—</div>
-            <div class="kpi-footer muted small">Усі токени, де ви власник</div>
-          </div>
-          <div class="kpi-card card">
-            <div class="kpi-label">Товари компанії</div>
-            <div class="kpi-value" id="kpiCompanyProducts">—</div>
-            <div class="kpi-footer muted small">Створені як виробник</div>
-          </div>
-          <div class="kpi-card card">
-            <div class="kpi-label">Партії</div>
-            <div class="kpi-value" id="kpiBatches">—</div>
-            <div class="kpi-footer muted small">Ваші виробничі партії</div>
-          </div>
+      <div class="card chart-card">
+        <div id="overviewChart">
+          <!-- main.js рендерить графік -->
         </div>
+      </div>
+    </section>
 
-        <div class="grid-2 layout-gap">
-          <!-- LEFT COLUMN -->
-          <div>
-            <!-- Profile card (JS наповнює #profileBox) -->
-            <div id="profileBox" class="card profile-card"></div>
+    <!-- ============ PROFILE ============ -->
+    <section class="view" data-view="profile" style="display:none">
+      <div class="section-header">
+        <h1>Мій профіль</h1>
+      </div>
+      <div id="profileCard" class="card profile-card">
+        <!-- main.js рендерить профіль -->
+      </div>
+    </section>
 
-            <!-- User products list -->
-            <div class="card">
-              <div class="card-header-row">
-                <h3>Мої продукти</h3>
-                <span class="muted small">Токени, створені як користувач</span>
-              </div>
-              <div id="myProducts" class="list products-list"></div>
+    <!-- ============ USER PRODUCTS ============ -->
+    <section class="view" data-view="products" style="display:none">
+      <div class="section-header">
+        <h1>Мої товари</h1>
+      </div>
+
+      <div class="grid two">
+        <div class="card">
+          <h3>Створити товар</h3>
+          <form id="userProductForm" class="form-grid">
+            <label>
+              <span>Назва*</span>
+              <input name="name" required />
+            </label>
+            <label>
+              <span>SKU / код</span>
+              <input name="sku" />
+            </label>
+            <label>
+              <span>Дата виготовлення</span>
+              <input name="manufacturedAt" placeholder="2024-08-12" />
+            </label>
+            <label>
+              <span>Зображення (URL)</span>
+              <input name="image" />
+            </label>
+            <label>
+              <span>Кількість екземплярів</span>
+              <input type="number" name="editionCount" value="1" min="1" />
+            </label>
+            <label class="full">
+              <span>Сертифікати (через кому)</span>
+              <textarea name="certificates" rows="2"></textarea>
+            </label>
+            <div class="form-footer full">
+              <button class="btn">Створити</button>
+              <div id="userCreateMsg" class="muted tiny"></div>
             </div>
-          </div>
-
-          <!-- RIGHT COLUMN -->
-          <div class="right-column">
-            <!-- Create user product -->
-            <div class="card">
-              <div class="card-header-row">
-                <h3>Створити продукт (користувач)</h3>
-                <span class="muted small">Без бренду, для особистого використання</span>
-              </div>
-
-              <form id="userProductForm" class="form">
-                <div class="grid grid-2col">
-                  <label>
-                    Назва
-                    <input name="name" required placeholder="Назва товару" />
-                  </label>
-                  <label>
-                    SKU
-                    <input name="sku" placeholder="Необовʼязково" />
-                  </label>
-                  <label>
-                    Вироблено (YYYY-MM-DD)
-                    <input name="manufacturedAt" placeholder="2025-01-01" />
-                  </label>
-                  <label>
-                    Зображення URL
-                    <input name="image" placeholder="https://..." />
-                  </label>
-                  <label>
-                    Кількість екземплярів
-                    <input name="editionCount" type="number" min="1" value="1" />
-                  </label>
-                  <label>
-                    Сертифікати (через кому)
-                    <input name="certificates" placeholder="ISO9001, CE" />
-                  </label>
-                </div>
-
-                <div class="form-footer">
-                  <button class="btn">Створити</button>
-                  <span id="userCreateMsg" class="muted small"></span>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- COMPANY VIEW -->
-      <section class="view" data-view="company" style="display:none">
-        <div class="section-title-row">
-          <div>
-            <h2>Компанія та виробництво</h2>
-            <p class="muted small">
-              Подайте заявку на бренд, керуйте партіями та товарами виробника.
-            </p>
-          </div>
-        </div>
-
-        <div class="grid-2 layout-gap">
-          <!-- Apply company -->
-          <div class="card">
-            <div class="card-header-row">
-              <h3>Заявка на компанію</h3>
-              <span class="muted small">Дані потраплять до модерації адміном</span>
-            </div>
-
-            <form id="companyForm" class="form">
-              <div class="grid grid-2col">
-                <label>Імʼя контактної особи
-                  <input name="fullName" required />
-                </label>
-                <label>Email контактний
-                  <input name="contactEmail" type="email" required />
-                </label>
-                <label>Юридична назва
-                  <input name="legalName" required />
-                </label>
-                <label>Брендова назва
-                  <input name="brandName" placeholder="як на етикетці" />
-                </label>
-                <label>Країна
-                  <input name="country" />
-                </label>
-                <label>VAT
-                  <input name="vat" />
-                </label>
-                <label>Реєстраційний номер
-                  <input name="regNumber" />
-                </label>
-                <label>Сайт
-                  <input name="site" placeholder="https://..." />
-                </label>
-                <label>Телефон
-                  <input name="phone" />
-                </label>
-                <label>Адреса
-                  <input name="address" />
-                </label>
-              </div>
-
-              <div class="upload-card card flat">
-                <div class="row file-row">
-                  <label class="file">
-                    Доказ бренду (скан/скрін)
-                    <input type="file" id="proofFile" accept="image/*,.pdf" />
-                  </label>
-                  <input type="hidden" name="proofUrl" />
-                </div>
-                <span id="applyMsg" class="muted small"></span>
-              </div>
-
-              <div class="form-footer">
-                <button class="btn">Надіслати заявку</button>
-              </div>
-            </form>
-          </div>
-
-          <!-- Batches + company products -->
-          <div class="right-column">
-            <div class="card">
-              <div class="card-header-row">
-                <h3>Мої партії</h3>
-                <span class="muted small">Організуйте токени по партіях</span>
-              </div>
-              <div id="myBatches" class="list"></div>
-
-              <form id="batchForm" class="form-inline">
-                <input name="title" placeholder="Назва нової партії…" />
-                <button class="btn">Створити партію</button>
-              </form>
-            </div>
-
-            <div class="card">
-              <div class="card-header-row">
-                <h3>Товари компанії</h3>
-                <span class="muted small">Створюються під вашим брендом</span>
-              </div>
-
-              <div class="row filter-row">
-                <input id="manuSkuFilter" placeholder="Фільтр за SKU" />
-                <button id="manuSkuBtn" class="btn ghost">Фільтрувати</button>
-              </div>
-
-              <form id="companyProductForm" class="form mt">
-                <div class="grid grid-2col">
-                  <label>Назва
-                    <input name="name" required />
-                  </label>
-                  <label>SKU
-                    <input name="sku" />
-                  </label>
-                  <label>Вироблено (YYYY-MM-DD)
-                    <input name="manufacturedAt" />
-                  </label>
-                  <label>Зображення URL
-                    <input name="image" placeholder="https://..." />
-                  </label>
-                  <label>Кількість екземплярів
-                    <input name="editionCount" type="number" min="1" value="1" />
-                  </label>
-                  <label>Сертифікати (через кому)
-                    <input name="certificates" />
-                  </label>
-                  <label>Партія
-                    <select name="batchId">
-                      <option value="">— без партії —</option>
-                    </select>
-                  </label>
-                </div>
-
-                <div class="form-footer">
-                  <button class="btn">Створити товар(и)</button>
-                  <span id="companyCreateMsg" class="muted small"></span>
-                </div>
-              </form>
-
-              <div id="myProductsCompany" class="list products-list mt"></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ADMIN VIEW (заявки) -->
-      <section class="view" data-view="admin" style="display:none">
-        <div class="section-title-row">
-          <div>
-            <h2>Модерація заявок компаній</h2>
-            <p class="muted small">
-              Доступна тільки адміністраторам. Тут відображаються заявки зі статусом <b>pending</b>.
-            </p>
-          </div>
+          </form>
         </div>
 
         <div class="card">
-          <div class="card-header-row">
-            <h3>Заявки на компанію</h3>
-            <span class="muted small">Очікують рішення</span>
+          <h3>Список моїх товарів</h3>
+          <div id="myProducts" class="stack">
+            <!-- main.js -->
           </div>
-          <div id="adminApps" class="list admin-list"></div>
         </div>
-      </section>
+      </div>
+    </section>
 
-    </main>
-  </div>
+    <!-- ============ COMPANY ============ -->
+    <section class="view" data-view="company" style="display:none">
+      <div class="section-header">
+        <h1>Компанія та бренди</h1>
+      </div>
+
+      <div class="grid two">
+        <!-- Заявка компанії -->
+        <div class="card">
+          <h3>Подати заявку на бренд</h3>
+          <form id="companyForm" class="form-grid">
+            <label>
+              <span>Повне імʼя*</span>
+              <input name="fullName" required />
+            </label>
+            <label>
+              <span>Контактний email*</span>
+              <input type="email" name="contactEmail" required />
+            </label>
+            <label>
+              <span>Юридична назва компанії*</span>
+              <input name="legalName" required />
+            </label>
+            <label>
+              <span>Назва бренду</span>
+              <input name="brandName" />
+            </label>
+            <label>
+              <span>Країна</span>
+              <input name="country" />
+            </label>
+            <label>
+              <span>VAT</span>
+              <input name="vat" />
+            </label>
+            <label>
+              <span>Реєстраційний номер</span>
+              <input name="regNumber" />
+            </label>
+            <label>
+              <span>Сайт</span>
+              <input name="site" />
+            </label>
+            <label>
+              <span>Телефон</span>
+              <input name="phone" />
+            </label>
+            <label class="full">
+              <span>Адреса</span>
+              <textarea name="address" rows="2"></textarea>
+            </label>
+            <label class="full">
+              <span>Документ-доказ (pdf / зображення)</span>
+              <input type="file" id="proofFile" />
+              <input type="hidden" name="proofUrl" />
+            </label>
+            <div class="form-footer full">
+              <button class="btn">Надіслати заявку</button>
+              <div id="applyMsg" class="muted tiny"></div>
+            </div>
+          </form>
+        </div>
+
+        <!-- Партії / товари компанії -->
+        <div class="card">
+          <h3>Товари компанії</h3>
+          <div class="muted tiny">
+            Доступно після схвалення компанії як виробника.
+          </div>
+
+          <form id="batchForm" class="inline-form">
+            <input name="title" placeholder="Назва партії" />
+            <button class="btn tiny" type="submit">+ Партія</button>
+          </form>
+
+          <div id="myBatches" class="stack tiny-mt">
+            <!-- main.js -->
+          </div>
+
+          <hr class="divider">
+
+          <form id="companyProductForm" class="form-grid">
+            <h4 class="full">Створити товар бренду</h4>
+            <label>
+              <span>Назва*</span>
+              <input name="name" required />
+            </label>
+            <label>
+              <span>SKU / код</span>
+              <input name="sku" />
+            </label>
+            <label>
+              <span>Дата виготовлення</span>
+              <input name="manufacturedAt" placeholder="2024-08-12" />
+            </label>
+            <label>
+              <span>Зображення (URL)</span>
+              <input name="image" />
+            </label>
+            <label>
+              <span>Кількість екземплярів</span>
+              <input type="number" name="editionCount" value="1" min="1" />
+            </label>
+            <label>
+              <span>Партія</span>
+              <select name="batchId">
+                <option value="">— без партії —</option>
+              </select>
+            </label>
+            <label class="full">
+              <span>Сертифікати (через кому)</span>
+              <textarea name="certificates" rows="2"></textarea>
+            </label>
+            <div class="form-footer full">
+              <button class="btn tiny">Створити товар</button>
+              <div id="companyCreateMsg" class="muted tiny"></div>
+            </div>
+          </form>
+
+          <div class="inline-form tiny-mt">
+            <input id="manuSkuFilter" placeholder="Фільтр за SKU" />
+            <button id="manuSkuBtn" class="btn tiny" type="button">Фільтрувати</button>
+          </div>
+
+          <div id="myProductsCompany" class="stack tiny-mt">
+            <!-- main.js -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ BATCHES ============ -->
+    <section class="view" data-view="batches" style="display:none">
+      <div class="section-header">
+        <h1>Мої партії</h1>
+        <div class="section-actions">
+          <input id="batchSearch" class="search-input" placeholder="Пошук по назві або ID партії…" />
+        </div>
+      </div>
+      <div id="batchesList" class="stack">
+        <!-- main.js -->
+      </div>
+    </section>
+
+    <!-- ============ MESSAGES (заявки) ============ -->
+    <section class="view" data-view="messages" style="display:none">
+      <div class="section-header">
+        <h1>Повідомлення</h1>
+        <div id="messagesInfo" class="muted small">
+          Brand applications
+        </div>
+      </div>
+      <div id="messagesList" class="stack">
+        <!-- main.js -->
+      </div>
+    </section>
+
+    <!-- ============ SETTINGS ============ -->
+    <section class="view" data-view="settings" style="display:none">
+      <div class="section-header">
+        <h1>Налаштування</h1>
+      </div>
+      <div id="settingsInfo" class="stack">
+        <!-- main.js -->
+      </div>
+    </section>
+
+  </main>
 </div>
 
-<!-- СКРИПТИ -->
+<!-- Скрипти -->
 <script type="module" src="/firebase.js"></script>
+<script type="module" src="/app.js"></script>
 <script type="module" src="/main.js"></script>
 </body>
 </html>
+
