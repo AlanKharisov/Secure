@@ -1,6 +1,6 @@
 // admin.js
-import { api, qs } from "/app.js";
-import { Auth } from "/firebase.js";
+import { api, qs } from "/js/app.js";
+import { Auth } from "/js/firebase.js";
 
 const meInfo = qs("#meInfo");
 const grantSection = qs("#grantSection");
