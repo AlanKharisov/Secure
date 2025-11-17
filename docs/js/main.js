@@ -3,8 +3,8 @@
 //   /firebase.js → export { Auth, uploadFile, ensureLoggedIn }
 //   /app.js      → export { api, qs, qsa }
 
-import { Auth, uploadFile, ensureLoggedIn } from "./firebase.js";
-import { api, qs, qsa } from "./app.js";
+import { Auth, uploadFile, ensureLoggedIn } from "./js/firebase.js";
+import { api, qs, qsa } from "./js/app.js";
 
 /* ==========================================================
  * 1. УТИЛІТИ
