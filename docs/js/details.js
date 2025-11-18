@@ -1,6 +1,6 @@
 // details.js — сторінка перевірки одного продукту
-import { api } from "/docs/js/app.js";
-import { Auth } from "/docs/js/firebase.js";
+import { api } from "./app.js";
+import { Auth } from "./firebase.js";
 // ESM-версія QRCode (уникаємо UMD-помилки з "default export"):
 import QRCode from "https://esm.sh/qrcode@1.5.3";
 
