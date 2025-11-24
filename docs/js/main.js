@@ -380,26 +380,34 @@ function renderProductsList(list, el) {
     el.innerHTML = `<div class="muted">Немає продуктів</div>`;
     return;
   }
-  el.innerHTML = list.map(p => `
-    <div class="card product-card">
-      <div class="product-main">
-        <div class="product-title-row">
-          <div class="product-name">${p.meta?.name || "ITEM"}</div>
-          <span class="tag">${p.state}</span>
+
+  el.innerHTML = list.map(p => {
+    const thumb = p.meta?.image
+      ? `<div class="product-thumb" style="background-image:url('${p.meta.image}')"></div>`
+      : "";
+
+    return `
+      <div class="card product-card">
+        ${thumb}
+        <div class="product-main">
+          <div class="product-title-row">
+            <div class="product-name">${p.meta?.name || "ITEM"}</div>
+            <span class="tag">${p.state}</span>
+          </div>
+          <div class="product-meta-row">
+            <span>Token: ${p.tokenId}</span>
+            <span>SKU: ${p.sku || "—"}</span>
+            <span>Edition: ${p.editionNo || 1}/${p.editionTotal || 1}</span>
+          </div>
         </div>
-        <div class="product-meta-row">
-          <span>Token: ${p.tokenId}</span>
-          <span>SKU: ${p.sku || "—"}</span>
-          <span>Edition: ${p.editionNo || 1}/${p.editionTotal || 1}</span>
+        <div class="product-actions">
+          ${p.publicUrl
+            ? `<a class="btn ghost" target="_blank" href="${p.publicUrl}">Деталі</a>`
+            : ""}
         </div>
       </div>
-      <div class="product-actions">
-        ${p.publicUrl
-          ? `<a class="btn ghost" target="_blank" href="${p.publicUrl}">Деталі</a>`
-          : ""}
-      </div>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 }
 
 async function loadUserProducts() {
