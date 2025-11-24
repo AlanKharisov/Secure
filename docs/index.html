@@ -148,16 +148,16 @@
               <span>Дата виготовлення</span>
               <input name="manufacturedAt" placeholder="2024-08-12" />
             </label>
-           <label class="full">
-            <span>Зображення (URL або завантаження)</span>
-            <input name="image" placeholder="https://..." />
-            <div id="userImageDropzone" class="dropzone tiny-mt">
-            <div class="tiny">
-             Перетягніть зображення сюди або натисніть, щоб обрати файл.
-            </div>
-            <div id="userImageStatus" class="tiny muted"></div>
-            </div>
-            <input type="file" id="userImageFile" accept="image/*" style="display:none" />
+            <label class="full">
+              <span>Зображення (URL або завантаження)</span>
+              <input name="image" placeholder="https://..." />
+              <div id="userImageDropzone" class="dropzone tiny-mt">
+                <div class="tiny">
+                  Перетягніть зображення сюди або натисніть, щоб обрати файл.
+                </div>
+                <div id="userImageStatus" class="tiny muted"></div>
+              </div>
+              <input type="file" id="userImageFile" accept="image/*" style="display:none" />
             </label>
             <label>
               <span>Кількість екземплярів</span>
@@ -187,12 +187,20 @@
     <section class="view" data-view="company" style="display:none">
       <div class="section-header">
         <h1>Компанія та бренди</h1>
+        <div class="section-actions">
+          <button class="btn ghost tiny company-tab active" data-company-tab="apply">
+            Заявка компанії
+          </button>
+          <button class="btn ghost tiny company-tab" data-company-tab="inventory">
+            Товари бренду
+          </button>
+        </div>
       </div>
 
-      <div class="grid two">
-        <!-- Заявка компанії -->
+      <!-- ПАНЕЛЬ: ЗАЯВКА КОМПАНІЇ -->
+      <div class="grid two" data-company-pane="apply">
         <div class="card">
-          <h3>Подати заявку на бренд</h3>
+          <h3>Подати заявку на бренд / компанію</h3>
           <form id="companyForm" class="form-grid">
             <label>
               <span>Повне імʼя*</span>
@@ -246,26 +254,32 @@
           </form>
         </div>
 
-        <!-- Партії / товари компанії -->
-        <div class="card">
-          <h3>Товари компанії</h3>
-          <div class="muted tiny">
-            Доступно після схвалення компанії як виробника.
-          </div>
+        <div class="card flat">
+          <h4>Статус</h4>
+          <p class="muted small">
+            Тут ви подаєте заявку на те, щоб стати виробником і створювати бренди.
+            Після схвалення ви зможете керувати партіями й товарами у вкладці
+            <b>Товари бренду</b>.
+          </p>
+        </div>
+      </div>
 
+      <!-- ПАНЕЛЬ: ТОВАРИ БРЕНДУ / ПАРТІЇ -->
+      <div class="grid two" data-company-pane="inventory" style="display:none">
+        <div class="card">
+          <h3>Партії</h3>
           <form id="batchForm" class="inline-form">
             <input name="title" placeholder="Назва партії" />
             <button class="btn tiny" type="submit">+ Партія</button>
           </form>
-
           <div id="myBatches" class="stack tiny-mt">
             <!-- main.js -->
           </div>
+        </div>
 
-          <hr class="divider">
-
+        <div class="card">
+          <h3>Товари бренду</h3>
           <form id="companyProductForm" class="form-grid">
-            <h4 class="full">Створити товар бренду</h4>
             <label>
               <span>Назва*</span>
               <input name="name" required />
@@ -279,15 +293,15 @@
               <input name="manufacturedAt" placeholder="2024-08-12" />
             </label>
             <label class="full">
-            <span>Зображення (URL або завантаження)</span>
-            <input name="image" placeholder="https://..." />
-            <div id="companyImageDropzone" class="dropzone tiny-mt">
-            <div class="tiny">
-            Перетягніть зображення сюди або натисніть, щоб обрати файл.
-            </div>
-            <div id="companyImageStatus" class="tiny muted"></div>
-            </div>
-            <input type="file" id="companyImageFile" accept="image/*" style="display:none" />
+              <span>Зображення (URL або завантаження)</span>
+              <input name="image" placeholder="https://..." />
+              <div id="companyImageDropzone" class="dropzone tiny-mt">
+                <div class="tiny">
+                  Перетягніть зображення сюди або натисніть, щоб обрати файл.
+                </div>
+                <div id="companyImageStatus" class="tiny muted"></div>
+              </div>
+              <input type="file" id="companyImageFile" accept="image/*" style="display:none" />
             </label>
             <label>
               <span>Кількість екземплярів</span>
@@ -308,11 +322,6 @@
               <div id="companyCreateMsg" class="muted tiny"></div>
             </div>
           </form>
-
-          <div class="inline-form tiny-mt">
-            <input id="manuSkuFilter" placeholder="Фільтр за SKU" />
-            <button id="manuSkuBtn" class="btn tiny" type="button">Фільтрувати</button>
-          </div>
 
           <div id="myProductsCompany" class="stack tiny-mt">
             <!-- main.js -->
@@ -366,4 +375,3 @@
 <script type="module" src="/js/main.js"></script>
 </body>
 </html>
-
