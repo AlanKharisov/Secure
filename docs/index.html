@@ -148,9 +148,16 @@
               <span>Дата виготовлення</span>
               <input name="manufacturedAt" placeholder="2024-08-12" />
             </label>
-            <label>
-              <span>Зображення (URL)</span>
-              <input name="image" />
+           <label class="full">
+            <span>Зображення (URL або завантаження)</span>
+            <input name="image" placeholder="https://..." />
+            <div id="userImageDropzone" class="dropzone tiny-mt">
+            <div class="tiny">
+             Перетягніть зображення сюди або натисніть, щоб обрати файл.
+            </div>
+            <div id="userImageStatus" class="tiny muted"></div>
+            </div>
+            <input type="file" id="userImageFile" accept="image/*" style="display:none" />
             </label>
             <label>
               <span>Кількість екземплярів</span>
@@ -271,9 +278,16 @@
               <span>Дата виготовлення</span>
               <input name="manufacturedAt" placeholder="2024-08-12" />
             </label>
-            <label>
-              <span>Зображення (URL)</span>
-              <input name="image" />
+            <label class="full">
+            <span>Зображення (URL або завантаження)</span>
+            <input name="image" placeholder="https://..." />
+            <div id="companyImageDropzone" class="dropzone tiny-mt">
+            <div class="tiny">
+            Перетягніть зображення сюди або натисніть, щоб обрати файл.
+            </div>
+            <div id="companyImageStatus" class="tiny muted"></div>
+            </div>
+            <input type="file" id="companyImageFile" accept="image/*" style="display:none" />
             </label>
             <label>
               <span>Кількість екземплярів</span>
