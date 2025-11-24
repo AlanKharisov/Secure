@@ -43,7 +43,9 @@ function renderDetails(data) {
 
   const meta = data.metadata || {};
   const img = meta.image
-    ? `<img src="${meta.image}" alt="" style="max-width:220px;border-radius:16px;box-shadow:var(--shadow-soft);">`
+    ? `<div class="product-side-card">
+         <img src="${meta.image}" alt="" style="width:100%;border-radius:14px;display:block;">
+       </div>`
     : "";
 
   const certs = (meta.certificates || [])
@@ -51,35 +53,64 @@ function renderDetails(data) {
 
   const serialPart = meta.serial
     ? `<p><b>Serial:</b> ${meta.serial}</p>`
-    : `<p class="muted small">Серійний номер приховано для публічного перегляду.</p>`;
+    : `<p class="muted tiny">Серійний номер приховано для публічного перегляду.</p>`;
 
   box.innerHTML = `
-    <div class="row">
-      <div>
-        ${img}
+    <div class="product-hero">
+      <div class="product-main-col">
+        <div class="product-header-row">
+          <span class="tag">${friendlyState(data.state)}</span>
+          ${data.brandSlug
+            ? `<span class="tag tag-approved">${data.brandSlug}</span>`
+            : ""
+          }
+        </div>
+        <h2 style="margin:0 0 4px">${meta.name || "ITEM"}</h2>
+        <div class="product-tagline">
+          Унікальний захищений продукт у системі MARKI Secure.
+        </div>
+
+        <div class="product-meta-grid">
+          <div class="product-meta-item">
+            <span class="product-meta-label">Token</span>
+            ${data.tokenId}
+          </div>
+          <div class="product-meta-item">
+            <span class="product-meta-label">SKU</span>
+            ${data.sku || "—"}
+          </div>
+          <div class="product-meta-item">
+            <span class="product-meta-label">Edition</span>
+            ${(data.editionNo || 1)}/${(data.editionTotal || 1)}
+          </div>
+          <div class="product-meta-item">
+            <span class="product-meta-label">Manufactured</span>
+            ${meta.manufacturedAt || "—"}
+          </div>
+        </div>
+
         <div class="mt">
-          <canvas id="qr"></canvas>
-          <div class="muted tiny">Скануйте QR, щоб відкрити цю сторінку.</div>
+          ${serialPart}
+          <p>
+            <b>Режим перегляду:</b>
+            <span class="tag">${friendlyScope(data.scope)}</span>
+          </p>
+        </div>
+
+        <div class="mt">
+          <p><b>Certificates:</b></p>
+          <ul>${certs}</ul>
         </div>
       </div>
-      <div>
-        <h3 style="margin-top:0">${meta.name || "ITEM"}</h3>
-        <p><b>Token:</b> ${data.tokenId}</p>
-        <p><b>Brand:</b> ${data.brandSlug || "—"}</p>
-        <p><b>SKU:</b> ${data.sku || "—"}</p>
-        <p><b>Edition:</b> ${data.editionNo || 1}/${data.editionTotal || 1}</p>
-        <p><b>Manufactured:</b> ${meta.manufacturedAt || "—"}</p>
-        ${serialPart}
-        <p>
-          <b>State:</b>
-          <span class="tag">${friendlyState(data.state)}</span>
-        </p>
-        <p>
-          <b>Режим перегляду:</b>
-          <span class="tag">${friendlyScope(data.scope)}</span>
-        </p>
-        <p><b>Certificates:</b></p>
-        <ul>${certs}</ul>
+
+      <div class="product-side">
+        ${img}
+        <div class="product-side-card">
+          <canvas id="qr"></canvas>
+          <div class="muted tiny mt">
+            Скануйте QR-код, щоб швидко відкрити цю сторінку.
+          </div>
+        </div>
       </div>
     </div>
   `;
