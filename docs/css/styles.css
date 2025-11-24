@@ -913,6 +913,60 @@ body[data-theme="dark"] .product-meta-row {
   border-top: 1px dashed rgba(148, 163, 184, 0.4);
 }
 
+/* LAYOUT HELPERS (details page, simple pages) */
+
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 18px 16px 32px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.row > div {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.mt {
+  margin-top: 16px;
+}
+
+/* DRAG & DROP UPLOAD */
+
+.dropzone {
+  border-radius: 10px;
+  border: 1px dashed var(--border-subtle-light);
+  padding: 10px 12px;
+  font-size: 12px;
+  background: rgba(148, 163, 184, 0.04);
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+body[data-theme="dark"] .dropzone {
+  border-color: var(--border-subtle-dark);
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.dropzone:hover {
+  background: rgba(148, 163, 184, 0.08);
+  transform: translateY(-1px);
+}
+
+.dropzone.is-dragover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 /* RESPONSIVE */
 
 @media (max-width: 720px) {
