@@ -11,8 +11,8 @@ import { api, qs, qsa } from "./app.js";
  * ========================================================*/
 
 const STORAGE_KEYS = {
-  events: "ms_events",        // події аналітики
-  theme:  "ms_theme"          // "light" | "dark"
+  events: "ms_events", // події аналітики
+  theme:  "ms_theme"   // "light" | "dark"
 };
 
 function saveJSON(key, value) {
@@ -31,13 +31,11 @@ function loadJSON(key, fallback) {
 function trackEvent(type, payload = {}) {
   const events = loadJSON(STORAGE_KEYS.events, []);
   events.push({ type, ts: Date.now(), ...payload });
-  // обрізаємо до 5000 останніх
   if (events.length > 5000) events.splice(0, events.length - 5000);
   saveJSON(STORAGE_KEYS.events, events);
 }
 
 function filterEventsByRange(range = "year") {
-  // range: "day" | "month" | "year" | "all"
   const events = loadJSON(STORAGE_KEYS.events, []);
   if (range === "all") return events;
 
@@ -65,7 +63,6 @@ function filterEventsByRange(range = "year") {
 }
 
 function groupEventsByMonth(events) {
-  // повертає масив із 12 елементів — скільки подій на кожен місяць
   const arr = Array(12).fill(0);
   events.forEach(ev => {
     const d = new Date(ev.ts);
@@ -100,7 +97,6 @@ function initTheme() {
   applyTheme(stored);
 
   const toggleTop = qs("#themeToggle");
-  const toggleSettings = qs("#settingsThemeToggle");
 
   const handler = () => {
     const next = document.body.dataset.theme === "dark" ? "light" : "dark";
@@ -108,7 +104,6 @@ function initTheme() {
   };
 
   toggleTop?.addEventListener("click", handler);
-  toggleSettings?.addEventListener("click", handler);
 }
 
 function initSidebar() {
@@ -154,17 +149,14 @@ function setView(name) {
   qsa("[data-nav]").forEach(link => {
     link.classList.toggle("active", link.dataset.nav === name);
   });
-  // закриваємо сайдбар на мобілі
   document.body.classList.remove("sidebar-open");
 
-  // lazy load даних під конкретні вʼюхи
   if (!lastMe) return;
   if (name === "overview") {
     renderOverview(lastMe);
   } else if (name === "profile") {
     renderProfile(lastMe, lastUser);
   } else if (name === "company") {
-    // компанія: форма заявки + компанійські продукти/партії
     loadCompanyView();
   } else if (name === "batches") {
     loadBatchesAndProducts();
@@ -292,7 +284,6 @@ function renderOverview(me) {
   const chartWrap = qs("#overviewChart");
   const rangeSelect = qs("#overviewRange");
 
-  // Показуємо секцію тільки адміну
   if (!me.isAdmin) {
     section.style.display = "none";
     const navOverview = qs('[data-nav="overview"]');
@@ -423,7 +414,7 @@ async function loadUserProducts() {
 }
 
 /* ==========================================================
- * 8. ПАРТІЇ + ТОВАРИ БРЕНДУ
+ * 8. ПАРТІЇ + ТОВАРИ БРЕНДУ (для вкладки "Мої партії")
  * ========================================================*/
 
 async function loadBatchesAndProducts() {
@@ -489,7 +480,6 @@ async function loadBatchesAndProducts() {
       `;
     }).join("");
 
-    // навішуємо відкривання
     qsa("[data-toggle-batch]").forEach(btn => {
       btn.addEventListener("click", () => {
         const id = btn.dataset.toggleBatch;
@@ -541,11 +531,9 @@ async function loadBatchesSelect() {
   }
 }
 
-async function loadCompanyProductsFiltered() {
-  const sku = (qs("#manuSkuFilter")?.value || "").trim().toUpperCase();
-  const url = sku ? `/api/manufacturer/products?sku=${encodeURIComponent(sku)}` : `/api/manufacturer/products`;
+async function loadCompanyProducts() {
   try {
-    const list = await api(url);
+    const list = await api("/api/manufacturer/products");
     renderProductsList(list, qs("#myProductsCompany"));
   } catch (e) {
     console.warn("company products:", e.message || e);
@@ -554,7 +542,7 @@ async function loadCompanyProductsFiltered() {
 }
 
 async function loadCompanyView() {
-  await Promise.allSettled([loadBatchesSelect(), loadCompanyProductsFiltered()]);
+  await Promise.allSettled([loadBatchesSelect(), loadCompanyProducts()]);
 }
 
 /* ==========================================================
@@ -631,7 +619,6 @@ async function loadMessagesView(me) {
   if (!wrap) return;
 
   if (!me.isAdmin) {
-    // для звичайного юзера — просто інфа
     wrap.innerHTML = `<div class="muted small">
       Тут адміністратори бачать заявки на бренди.  
       Подати свою заявку можна у вкладці <b>Компанія</b>.
@@ -748,7 +735,6 @@ function wireCompanyApplyForm() {
 
 function wireManufacturerForms() {
   const batchForm = qs("#batchForm");
-  const skuBtn = qs("#manuSkuBtn");
   const companyProductForm = qs("#companyProductForm");
   const companyMsg = qs("#companyCreateMsg");
   const userProductForm = qs("#userProductForm");
@@ -766,10 +752,6 @@ function wireManufacturerForms() {
     } catch (err) {
       alert("Помилка створення партії: " + (err.message || err));
     }
-  });
-
-  skuBtn?.addEventListener("click", async () => {
-    await loadCompanyProductsFiltered();
   });
 
   companyProductForm?.addEventListener("submit", async (e) => {
@@ -790,7 +772,7 @@ function wireManufacturerForms() {
       await api("/api/manufacturer/products", { method: "POST", body });
       if (companyMsg) companyMsg.textContent = "Створено.";
       f.reset();
-      await loadCompanyProductsFiltered();
+      await loadCompanyProducts();
       trackEvent("create_company_product", { email: lastMe?.email });
     } catch (err) {
       alert("Помилка створення товару: " + (err.message || err));
@@ -824,87 +806,122 @@ function wireManufacturerForms() {
 }
 
 /* ==========================================================
- * 12.1. DRAG & DROP UPLOAD ДЛЯ ЗОБРАЖЕНЬ ПРОДУКТІВ
+ * 13. DRAG & DROP ДЛЯ ЗОБРАЖЕНЬ
  * ========================================================*/
 
-function setupImageDropzone({ dropzone, fileInput, urlInput, statusEl, folder }) {
-  if (!dropzone || !fileInput || !urlInput) return;
+function setupImageDropzone({ zoneId, fileInputId, statusId, formId, fieldName, folder }) {
+  const zone = qs(`#${zoneId}`);
+  const fileInput = qs(`#${fileInputId}`);
+  const statusEl = qs(`#${statusId}`);
+  const form = qs(`#${formId}`);
+  if (!zone || !fileInput || !form) return;
+  if (zone.dataset._wired) return;
+  zone.dataset._wired = "1";
+
+  const targetInput = form.querySelector(`input[name="${fieldName}"]`);
 
   const setStatus = (text) => {
     if (statusEl) statusEl.textContent = text || "";
   };
 
   const handleFiles = async (files) => {
-    const file = files && files[0];
+    const file = files?.[0];
     if (!file) return;
     try {
-      setStatus("Завантаження…");
+      setStatus("Завантаження...");
       await ensureLoggedIn();
       const { url } = await uploadFile(file, folder);
-      urlInput.value = url;
+      if (targetInput) targetInput.value = url;
       setStatus("Файл завантажено.");
     } catch (err) {
       console.error(err);
-      setStatus("Помилка завантаження");
-      alert("Помилка завантаження: " + (err.message || err));
+      setStatus("Помилка завантаження.");
+      alert("Upload error: " + (err.message || err));
     }
   };
 
-  dropzone.addEventListener("click", () => fileInput.click());
-
-  dropzone.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    dropzone.classList.add("is-dragover");
-  });
-
-  dropzone.addEventListener("dragleave", () => {
-    dropzone.classList.remove("is-dragover");
-  });
-
-  dropzone.addEventListener("drop", (e) => {
-    e.preventDefault();
-    dropzone.classList.remove("is-dragover");
-    if (e.dataTransfer?.files?.length) {
-      handleFiles(e.dataTransfer.files);
-    }
+  zone.addEventListener("click", () => {
+    fileInput.click();
   });
 
   fileInput.addEventListener("change", (e) => {
-    const files = e.target.files;
-    if (files && files.length) {
-      handleFiles(files);
-    }
+    handleFiles(e.target.files);
+  });
+
+  zone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    zone.classList.add("dragover");
+  });
+
+  zone.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    zone.classList.remove("dragover");
+  });
+
+  zone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    zone.classList.remove("dragover");
+    handleFiles(e.dataTransfer.files);
   });
 }
 
 function initProductImageDropzones() {
-  const userForm = qs("#userProductForm");
-  if (userForm && !userForm.dataset._imagesWired) {
-    setupImageDropzone({
-      dropzone: qs("#userImageDropzone"),
-      fileInput: qs("#userImageFile"),
-      urlInput: userForm.elements.image,
-      statusEl: qs("#userImageStatus"),
-      folder: "product_images"
-    });
-    userForm.dataset._imagesWired = "1";
-  }
+  if (document.body.dataset._imgDropzonesWired) return;
 
-  const companyForm = qs("#companyProductForm");
-  if (companyForm && !companyForm.dataset._imagesWired) {
-    setupImageDropzone({
-      dropzone: qs("#companyImageDropzone"),
-      fileInput: qs("#companyImageFile"),
-      urlInput: companyForm.elements.image,
-      statusEl: qs("#companyImageStatus"),
-      folder: "product_images"
-    });
-    companyForm.dataset._imagesWired = "1";
-  }
+  setupImageDropzone({
+    zoneId: "userImageDropzone",
+    fileInputId: "userImageFile",
+    statusId: "userImageStatus",
+    formId: "userProductForm",
+    fieldName: "image",
+    folder: "product_images"
+  });
+
+  setupImageDropzone({
+    zoneId: "companyImageDropzone",
+    fileInputId: "companyImageFile",
+    statusId: "companyImageStatus",
+    formId: "companyProductForm",
+    fieldName: "image",
+    folder: "product_images"
+  });
+
+  document.body.dataset._imgDropzonesWired = "1";
 }
 
 /* ==========================================================
- * 13. AUTH LIFECYCLE
+ * 14. COMPANY TABS
+ * ========================================================*/
+
+function initCompanyTabs() {
+  const tabs = qsa(".company-tab");
+  const panes = qsa("[data-company-pane]");
+
+  if (!tabs.length || !panes.length) return;
+  if (document.body.dataset._companyTabsWired) return;
+
+  const showPane = (name) => {
+    panes.forEach(p => {
+      p.style.display = p.dataset.companyPane === name ? "" : "none";
+    });
+    tabs.forEach(t => {
+      t.classList.toggle("active", t.dataset.companyTab === name);
+    });
+  };
+
+  tabs.forEach(tab => {
+    tab.addEventListener("click", (e) => {
+      e.preventDefault();
+      showPane(tab.dataset.companyTab);
+    });
+  });
+
+  showPane("apply");
+  document.body.dataset._companyTabsWired = "1";
+}
+
+/* ==========================================================
+ * 15. AUTH LIFECYCLE
  * ========================================================*/
 
 async function reloadProfile() {
@@ -935,18 +952,16 @@ function initAuth() {
 
     if (!user) {
       lastMe = null;
-      // чистимо основні блоки
       ["#profileCard", "#overviewStats", "#overviewChart",
        "#myProducts", "#myProductsCompany", "#myBatches",
        "#messagesList"].forEach(sel => {
         const el = qs(sel);
         if (el) el.innerHTML = "";
       });
-      setView("overview"); // пустий
+      setView("overview");
       return;
     }
 
-    // трекаємо логін
     trackEvent("login", { email: user.email });
 
     try {
@@ -956,7 +971,6 @@ function initAuth() {
       renderProfile(me, user);
       renderOverview(me);
       await loadUserProducts();
-      // якщо адмін — показуємо overview, інакше – профіль
       if (me.isAdmin) setView("overview");
       else setView("profile");
     } catch (e) {
@@ -966,7 +980,7 @@ function initAuth() {
 }
 
 /* ==========================================================
- * 14. INIT
+ * 16. INIT
  * ========================================================*/
 
 (function init() {
@@ -976,5 +990,6 @@ function initAuth() {
   wireCompanyApplyForm();
   wireManufacturerForms();
   initProductImageDropzones();
+  initCompanyTabs();
   initAuth();
 })();
