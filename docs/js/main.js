@@ -816,6 +816,86 @@ function wireManufacturerForms() {
 }
 
 /* ==========================================================
+ * 12.1. DRAG & DROP UPLOAD ДЛЯ ЗОБРАЖЕНЬ ПРОДУКТІВ
+ * ========================================================*/
+
+function setupImageDropzone({ dropzone, fileInput, urlInput, statusEl, folder }) {
+  if (!dropzone || !fileInput || !urlInput) return;
+
+  const setStatus = (text) => {
+    if (statusEl) statusEl.textContent = text || "";
+  };
+
+  const handleFiles = async (files) => {
+    const file = files && files[0];
+    if (!file) return;
+    try {
+      setStatus("Завантаження…");
+      await ensureLoggedIn();
+      const { url } = await uploadFile(file, folder);
+      urlInput.value = url;
+      setStatus("Файл завантажено.");
+    } catch (err) {
+      console.error(err);
+      setStatus("Помилка завантаження");
+      alert("Помилка завантаження: " + (err.message || err));
+    }
+  };
+
+  dropzone.addEventListener("click", () => fileInput.click());
+
+  dropzone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropzone.classList.add("is-dragover");
+  });
+
+  dropzone.addEventListener("dragleave", () => {
+    dropzone.classList.remove("is-dragover");
+  });
+
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("is-dragover");
+    if (e.dataTransfer?.files?.length) {
+      handleFiles(e.dataTransfer.files);
+    }
+  });
+
+  fileInput.addEventListener("change", (e) => {
+    const files = e.target.files;
+    if (files && files.length) {
+      handleFiles(files);
+    }
+  });
+}
+
+function initProductImageDropzones() {
+  const userForm = qs("#userProductForm");
+  if (userForm && !userForm.dataset._imagesWired) {
+    setupImageDropzone({
+      dropzone: qs("#userImageDropzone"),
+      fileInput: qs("#userImageFile"),
+      urlInput: userForm.elements.image,
+      statusEl: qs("#userImageStatus"),
+      folder: "product_images"
+    });
+    userForm.dataset._imagesWired = "1";
+  }
+
+  const companyForm = qs("#companyProductForm");
+  if (companyForm && !companyForm.dataset._imagesWired) {
+    setupImageDropzone({
+      dropzone: qs("#companyImageDropzone"),
+      fileInput: qs("#companyImageFile"),
+      urlInput: companyForm.elements.image,
+      statusEl: qs("#companyImageStatus"),
+      folder: "product_images"
+    });
+    companyForm.dataset._imagesWired = "1";
+  }
+}
+
+/* ==========================================================
  * 13. AUTH LIFECYCLE
  * ========================================================*/
 
@@ -887,5 +967,6 @@ function initAuth() {
   initNav();
   wireCompanyApplyForm();
   wireManufacturerForms();
+  initProductImageDropzones();
   initAuth();
 })();
